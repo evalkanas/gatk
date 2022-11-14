@@ -6,7 +6,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class VCFSchemaSaver {
-    static final Logger logger = LogManager.getLogger(org.broadinstitute.hellbender.tools.gvs.ingest.LoadStatus.class);
+    static final Logger logger = LogManager.getLogger(VCFSchemaSaver.class);
 
     private final String projectID;
     private final String datasetName;
