@@ -1,12 +1,11 @@
 package org.broadinstitute.hellbender.tools.gvs.ingest;
 
-import com.google.cloud.bigquery.storage.v1beta2.TableFieldSchema;
 import com.google.cloud.bigquery.storage.v1beta2.TableName;
 import com.google.cloud.bigquery.storage.v1beta2.TableSchema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class AttributeSchemaSaver {
+public class VCFSchemaSaver {
     static final Logger logger = LogManager.getLogger(org.broadinstitute.hellbender.tools.gvs.ingest.LoadStatus.class);
 
     private final String projectID;
@@ -14,7 +13,7 @@ public class AttributeSchemaSaver {
     private final String sampleSchemaTableName;
     private final TableName sampleSchemaTable;
 
-    public AttributeSchemaSaver(String projectID, String datasetName, String sampleSchemaTableName) {
+    public VCFSchemaSaver(String projectID, String datasetName, String sampleSchemaTableName) {
         this.projectID = projectID;
         this.datasetName = datasetName;
         this.sampleSchemaTableName = sampleSchemaTableName;
