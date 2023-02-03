@@ -89,7 +89,7 @@
 3. CSV output from `GvsCallsetStatistics` workflow
 4. TSV output from `GvsCalculatePrecisionAndSensitivity` workflow
 
-To get the VDS someplace secure and accessible for delivery, see [Delivering a VDS](vds/delivery/Delivering%20a%20VDS.md)
+To get the VDS someplace secure and accessible for delivery, see [Delivering a VDS](vds/delivery/Delivering%20a%20VDS.md).
 This includes details of how to get the VDS to the AoU delivery bucket as well as VDS naming conventions.
 The Callset Stats and S&P files can be simply gsutil cp-ed to the AoU delivery bucket since they are so much smaller.
 
