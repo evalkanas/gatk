@@ -128,7 +128,7 @@ workflows:
          - master
          - ah_var_store
          - ah_experimental_import
-         - gg_VS-637_RespectSampleLoadStatusFinishedFlag
+         - VS-816
    - name: GvsPrepareRangesCallset
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/wdl/GvsPrepareRangesCallset.wdl
@@ -145,7 +145,7 @@ workflows:
        branches:
          - master
          - ah_var_store
-         - gg_VS-785_RegenerateTheVATTsv
+         - mc_nirvana_reference_disk
    - name: GvsCreateVATFilesFromBigQuery
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/variant_annotations_table/GvsCreateVATFilesFromBigQuery.wdl
@@ -153,7 +153,6 @@ workflows:
        branches:
          - master
          - ah_var_store
-         - gg_VS-785_RegenerateTheVATTsv
    - name: GvsValidateVat
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/variant_annotations_table/GvsValidateVAT.wdl
@@ -212,6 +211,7 @@ workflows:
        branches:
          - master
          - ah_var_store
+         - gg_ConsistentlyUseDatasetNameAsInputParameter
    - name: GvsQuickstartHailIntegration
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/wdl/GvsQuickstartHailIntegration.wdl
@@ -220,6 +220,7 @@ workflows:
          - master
          - ah_var_store
          - vs_639_hail_testing_spike
+         - gg_ConsistentlyUseDatasetNameAsInputParameter
    - name: GvsQuickstartIntegration
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/wdl/GvsQuickstartIntegration.wdl
@@ -228,6 +229,7 @@ workflows:
          - master
          - ah_var_store
          - vs_639_hail_testing_spike
+         - gg_ConsistentlyUseDatasetNameAsInputParameter
    - name: GvsIngestTieout
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/wdl/GvsIngestTieout.wdl
