@@ -14,6 +14,8 @@ fi
 
 set -o errexit -o nounset -o pipefail -o xtrace
 
+git secrets --scan-history
+
 BASE_REPO="broad-dsde-methods/variantstore"
 REPO_WITH_TAG="${BASE_REPO}:${1}"
 GCR_TAG="us.gcr.io/${REPO_WITH_TAG}"

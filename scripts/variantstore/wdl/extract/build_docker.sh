@@ -31,6 +31,8 @@ fi
 
 set -o errexit
 
+git secrets --scan-history
+
 docker tag "${REPO_WITH_TAG}" "${GCR_TAG}"
 docker push "${GCR_TAG}"
 
