@@ -20,12 +20,13 @@ STAGING_CLONE_DIR=${PROJECT}_staging_temp
 #################################################
 # Parsing arguments
 #################################################
-while getopts "e:sd:t:" option; do
+while getopts "e:sd:t:r" option; do
 	case "$option" in
 		e) GITHUB_TAG="$OPTARG" ;;
 		s) IS_HASH=true ;;
 		d) STAGING_DIR="$OPTARG" ;;
 		t) DOCKER_IMAGE_TAG="$OPTARG" ;;
+		r) RELEASE=true ;;
 	esac
 done
 
@@ -81,9 +82,22 @@ if [ -z "$DOCKER_IMAGE_TAG" ]; then
   DOCKER_IMAGE_TAG=${GCR_REPO}:$(whoami)-${GITHUB_TAG}-${GIT_HASH_FOR_TAG}
 fi
 
+if [ -n "$RELEASE" ]; then
+  echo "steps:" >> cloudbuild.yaml
+  echo "- name: 'gcr.io/cloud-builders/docker'" >> cloudbuild.yaml
+  echo "  args: [ 'build', '-t', '${DOCKER_IMAGE_TAG}', '--build-arg', 'RELEASE=true', '.' ]" >> cloudbuild.yaml
+  echo "- name: 'gcr.io/cloud-builders/docker'" >> cloudbuild.yaml
+  echo "  args: [ 'push', '${DOCKER_IMAGE_TAG}' ]" >> cloudbuild.yaml
+fi
+
 echo "Building image with the tag ${DOCKER_IMAGE_TAG}..."
 
-SUBMIT_COMMAND="gcloud builds submit --tag ${DOCKER_IMAGE_TAG} --timeout=24h --machine-type n1_highcpu_8"
+if [ -n "$RELEASE" ]; then
+  SUBMIT_COMMAND="gcloud builds submit --config cloudbuild.yaml --timeout=24h --machine-type n1_highcpu_8"
+else
+  SUBMIT_COMMAND="gcloud builds submit --tag ${DOCKER_IMAGE_TAG} --timeout=24h --machine-type n1_highcpu_8"
+fi
+
 echo "running the following gcloud command: ${SUBMIT_COMMAND}"
 ## We need to override the default .gcloudignore to preserve the .git directory which we need in order to download LFS files in the remote build.
 echo -n "" >> .gcloudignore
