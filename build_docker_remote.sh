@@ -85,7 +85,7 @@ fi
 echo "steps:" >> cloudbuild.yaml
 echo "- name: 'gcr.io/cloud-builders/docker'" >> cloudbuild.yaml
 if [ -n "$RELEASE" ]; then
-  echo "  args: [ 'build', '-t', '${DOCKER_IMAGE_TAG}', '--build-arg', 'RELEASE=true', '--squash', '.' ]" >> cloudbuild.yaml
+  echo "  args: [ 'build', '-t', '${DOCKER_IMAGE_TAG}', '--build-arg', 'RELEASE=true', '.' ]" >> cloudbuild.yaml
 else
   echo "  args: [ 'build', '-t', '${DOCKER_IMAGE_TAG}', '.' ]" >> cloudbuild.yaml
 fi
