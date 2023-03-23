@@ -168,7 +168,7 @@ task GetBQTableLastModifiedDatetime {
   }
 
   runtime {
-    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:409.0.0-alpine"
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:423.0.0-alpine"
     memory: "3 GB"
     disks: "local-disk 10 HDD"
     preemptible: 3
@@ -206,7 +206,7 @@ task GetBQTablesMaxLastModifiedTimestamp {
   }
 
   runtime {
-    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:409.0.0-alpine"
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:423.0.0-alpine"
     memory: "3 GB"
     disks: "local-disk 10 HDD"
     preemptible: 3
@@ -250,7 +250,7 @@ task BuildGATKJarAndCreateDataset {
     wget -O - https://packages.adoptium.net/artifactory/api/gpg/key/public | apt-key add -
     echo "deb https://packages.adoptium.net/artifactory/deb $(awk -F= '/^VERSION_CODENAME/{print$2}' /etc/os-release) main" | tee /etc/apt/sources.list.d/adoptium.list
     apt-get -qq update
-    apt -qq install -y temurin-11-jdk
+    apt -qq install -y temurin-17-jdk
 
     # GATK
     git clone https://github.com/broadinstitute/gatk.git --depth 1 --branch ~{branch_name} --single-branch
@@ -288,7 +288,7 @@ task BuildGATKJarAndCreateDataset {
   }
 
   runtime {
-    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:409.0.0-slim"
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:423.0.0-slim"
     disks: "local-disk 500 HDD"
   }
 }
@@ -391,7 +391,7 @@ task GetNumSamplesLoaded {
   }
 
   runtime {
-    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:409.0.0-alpine"
+    docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:423.0.0-alpine"
     memory: "3 GB"
     disks: "local-disk 10 HDD"
     preemptible: 3
@@ -419,7 +419,7 @@ task CountSuperpartitions {
         ' | sed 1d > num_superpartitions.txt
     >>>
     runtime {
-        docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:409.0.0-alpine"
+        docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:423.0.0-alpine"
         disks: "local-disk 500 HDD"
     }
     output {
@@ -463,7 +463,7 @@ task ValidateFilterSetName {
     }
 
     runtime {
-        docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:409.0.0-alpine"
+        docker: "gcr.io/google.com/cloudsdktool/cloud-sdk:423.0.0-alpine"
         memory: "3 GB"
         disks: "local-disk 500 HDD"
         preemptible: 3
