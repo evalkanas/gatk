@@ -20,6 +20,10 @@ import org.broadinstitute.hellbender.utils.read.CigarBuilder;
 import org.broadinstitute.hellbender.utils.read.CigarUtils;
 import org.broadinstitute.hellbender.utils.smithwaterman.SmithWatermanAligner;
 import org.jetbrains.annotations.NotNull;
+import org.jgrapht.Graph;
+import org.jgrapht.alg.ConnectivityInspector;
+import org.jgrapht.graph.DefaultEdge;
+import org.jgrapht.graph.SimpleGraph;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -106,41 +110,20 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         SortedMap<Integer, List<Event>> variantsByStartPos = eventsInOrder.stream()
                 .collect(Collectors.groupingBy(Event::getStart, TreeMap::new, Collectors.toList()));
 
-        final List<EventGroup> eventGroups = clusterEventsIntoOverlappingGroups(eventsInOrder);
-        dragenEventGroupsMessage("Events groups before merging:", debug, eventGroups, refStart);
-
         // Iterate over all events starting with all indels
+        List<List<Event>> disallowedPairsAndTrios = smithWatermanRealignPairsOfVariantsForEquivalentEvents(referenceHaplotype, aligner, args.getHaplotypeToReferenceSWParameters(), debug, eventsInOrder);
+        dragenDisallowedGroupsMessage(refStart, debug, disallowedPairsAndTrios);
 
-        List<List<Event>> disallowedPairs = smithWatermanRealignPairsOfVariantsForEquivalentEvents(referenceHaplotype, aligner, args.getHaplotypeToReferenceSWParameters(), debug, eventsInOrder);
-        dragenDisallowedGroupsMessage(refStart, debug, disallowedPairs);
+        final List<EventGroup> eventGroups = getEventGroupClusters(eventsInOrder, disallowedPairsAndTrios);
 
-        //Now that we have the disallowed groups, lets merge any of them from seperate groups:
-        //TODO this is not an efficient way of doing this
-        for (List<Event> pair : disallowedPairs) {
-            EventGroup eventGrpLeft = null;
-            for (Event event : pair) {
-                EventGroup grpForEvent = eventGroups.stream().filter(grp -> grp.contains(event)).findFirst().get();
-                // If the event isn't in the same event group as its predicessor, merge this group with that one and
-                if (eventGrpLeft != grpForEvent) {
-                    if (eventGrpLeft == null) {
-                        eventGrpLeft = grpForEvent;
-                    } else {
-                        eventGrpLeft.mergeEvent(grpForEvent);
-                        eventGroups.remove(grpForEvent);
-                    }
-                }
-            }
-        }
-        dragenEventGroupsMessage("Events groups after merging:", debug, eventGroups, refStart);
-        //Now we have finished with the work of merging event groups transitively by position and mutually exclusiveness.
-        // Now every group should be entirely independant of one another:
+        dragenEventGroupsMessage("Events groups:", debug, eventGroups, refStart);
         
         // if any of our merged event groups is too large, abort.
         if (eventGroups.stream().anyMatch(eg -> eg.size() > MAX_VAR_IN_EVENT_GROUP)) {
             Utils.printIf(debug, () -> "Found event group with too many variants! Aborting haplotype building");
             return sourceSet;
         }
-        eventGroups.forEach(eg -> eg.populateBitset(disallowedPairs));
+        eventGroups.forEach(eg -> eg.populateBitset(disallowedPairsAndTrios));
 
 
 
@@ -740,7 +723,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         // Optimization to save ourselves recomputing the subsets at every point its necessary to do so.
         List<List<Tuple<Event,Boolean>>> cachedEventLists = null;
 
-        public EventGroup(final Event ... events) {
+        public EventGroup(final List<Event> events) {
             variantsInBitmapOrder = new ArrayList<>();
             variantContextSet = new HashSet<>();
 
@@ -898,13 +881,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             variantContextSet.add(event);
             allowedEvents = null;
         }
-
-        public EventGroup mergeEvent(final EventGroup other) {
-            variantsInBitmapOrder.addAll(other.variantsInBitmapOrder);
-            variantContextSet.addAll(other.variantsInBitmapOrder);
-            allowedEvents = null;
-            return this;
-        }
     }
 
     private static void removeBadPileupEventsMessage(final boolean debug, final AssemblyResultSet assemblyResultSet, final Set<Event> badPileupEvents) {
@@ -938,19 +914,45 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         return event.getStart() + (event.isSimpleInsertion() ? 0.5 : 0) + (event.isSimpleDeletion() ? 1 : 0);
     }
 
-    @NotNull
-    private static List<EventGroup> clusterEventsIntoOverlappingGroups(final List<Event> eventsInOrder) {
-        final List<EventGroup> eventGroups = new ArrayList<>();
-        int lastEventEnd = -1;
+    private static final boolean dragenOverlap(final Event event1, final Event event2) {
+        return event1.getStart() <= event2.getStart() ?
+                (dragenStart(event2) < event1.getEnd() + 1) : (dragenStart(event1) < event2.getEnd() + 1);
+    }
 
-        for (final Event event : eventsInOrder) {
-            if (dragenStart(event) > lastEventEnd + 0.5) {
-                eventGroups.add(new EventGroup());
+    /**
+     * Partition events into clusters that must be considered together, either because they overlap or because they belong to the
+     * same mutually exclusive pair or trio.  To find this clustering we calculate the connected components of an undirected graph
+     * with an edge connecting events that overlap or are mutually excluded.
+     */
+    @NotNull
+    private static List<EventGroup> getEventGroupClusters(List<Event> eventsInOrder, List<List<Event>> disallowedPairsAndTrios) {
+        final Graph<Event, DefaultEdge> graph = new SimpleGraph<>(DefaultEdge.class);
+        eventsInOrder.forEach(graph::addVertex);
+
+        // edges due to overlapping position
+        for (int e1 = 0; e1 < eventsInOrder.size(); e1++) {
+            final Event event1 = eventsInOrder.get(e1);
+            for (int e2 = e1 + 1; e2 < eventsInOrder.size(); e2++) {
+                final Event event2 = eventsInOrder.get(e2);
+                if (dragenOverlap(event1, event2)) {
+                    graph.addEdge(event1, event2);
+                } else if (event2.getStart() > event1.getEnd() + 1){
+                    break;
+                }
             }
-            eventGroups.get(eventGroups.size()-1).addEvent(event);
-            lastEventEnd = Math.max(event.getEnd(), lastEventEnd);
         }
 
-        return eventGroups;
+        // edges due to mutual exclusion
+        for (final List<Event> excludedGroup : disallowedPairsAndTrios) {
+            graph.addEdge(excludedGroup.get(0), excludedGroup.get(1));
+            if (excludedGroup.size() == 3) {
+                graph.addEdge(excludedGroup.get(1), excludedGroup.get(2));
+            }
+        }
+
+        return new ConnectivityInspector<>(graph).connectedSets().stream()
+                .map(set -> set.stream().sorted(Comparator.comparingInt(Event::getStart)).collect(Collectors.toList()))
+                .map(EventGroup::new)
+                .collect(Collectors.toList());
     }
 }
