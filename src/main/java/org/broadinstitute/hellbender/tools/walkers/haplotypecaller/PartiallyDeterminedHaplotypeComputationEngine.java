@@ -102,33 +102,25 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
         // TODO Here we would filter out if indels > 32, a heuristic from DRAGEN that is not implemented here
 
-        // NOTE: we iterate over this several times and expect it to be sorted.
-        Map<Double, List<Event>> eventsByDRAGENCoordinates = new LinkedHashMap<>();
-        SortedMap<Integer, List<Event>> variantsByStartPos = new TreeMap<>();
+        SortedMap<Integer, List<Event>> variantsByStartPos = eventsInOrder.stream()
+                .collect(Collectors.groupingBy(Event::getStart, TreeMap::new, Collectors.toList()));
+
         List<EventGroup> eventGroups = new ArrayList<>();
         int lastEventEnd = -1;
         for (Event vc : eventsInOrder) {
             // Break everything into independent groups (don't worry about transitivitiy right now)
-            Double eventKey = vc.getStart() + (vc.isSimpleInsertion() ? 0.5 : 0) + (vc.isSimpleDeletion() ? 1 : 0) - referenceHaplotype.getStartPosition();
-            eventsByDRAGENCoordinates.putIfAbsent(eventKey, new ArrayList<>()).add(vc);
-            variantsByStartPos.putIfAbsent(vc.getStart(), new ArrayList<>()).add(vc);
-            if (debug) System.out.println("testing:"+vc);
-            if (debug) System.out.println("EventKey:"+eventKey);
+            Double eventKey = dragenStart(vc) - referenceHaplotype.getStartPosition();
             if (eventKey <= lastEventEnd + 0.5) {
                 eventGroups.get(eventGroups.size()-1).addEvent(vc);
             } else {
                 eventGroups.add(new EventGroup(vc));
             }
             int newEnd = (int) (vc.getEnd() - referenceHaplotype.getStartPosition());
-            if (debug) System.out.println("LastEventEnd:"+lastEventEnd+"    newEventEnd:"+newEnd);
             lastEventEnd = Math.max(newEnd, lastEventEnd);
         }
-        //Print the event groups
-        if (debug) eventsByDRAGENCoordinates.entrySet().stream().map(e -> {
-            return String.format("%.1f", e.getKey()) + " -> " + e.getValue().stream().map(Event::asVariantContext)
-                    .map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition()))
-                    .collect(Collectors.joining(","));
-        }).forEach(System.out::println);
+
+        dragenEventGroupsMessage(debug, eventGroups, (int) referenceHaplotype.getStartPosition());
+
 
         // Iterate over all events starting with all indels
 
@@ -949,5 +941,16 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                     .map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition()))
                     .collect(Collectors.joining("\n"))
         );
+    }
+
+    private static void dragenEventGroupsMessage(final boolean debug, final List<EventGroup> eventGroups, final int startPos) {
+        //Print the event groups
+        if (debug) {
+            eventGroups.stream().map(eg -> eg.toDisplayString(startPos)).forEach(System.out::println);
+        }
+    }
+
+    private static double dragenStart(final Event event) {
+        return event.getStart() + (event.isSimpleInsertion() ? 0.5 : 0) + (event.isSimpleDeletion() ? 1 : 0);
     }
 }
