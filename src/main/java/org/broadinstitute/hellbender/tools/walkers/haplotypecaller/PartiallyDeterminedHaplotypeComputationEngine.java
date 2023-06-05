@@ -107,8 +107,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 .collect(Collectors.groupingBy(Event::getStart, TreeMap::new, Collectors.toList()));
 
         final List<EventGroup> eventGroups = makeEventGroups(eventsInOrder);
-        dragenEventGroupsMessage(debug, eventGroups, refStart);
-
+        dragenEventGroupsMessage("Events groups before merging:", debug, eventGroups, refStart);
 
         // Iterate over all events starting with all indels
 
@@ -118,9 +117,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             disallowedPairs.stream().map(l -> l.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining("->"))).forEach(System.out::println);
         }
 
-        if (debug) {
-            System.out.println("Event groups before merging:\n"+eventGroups.stream().map(eg -> eg.toDisplayString(refStart)).collect(Collectors.joining("\n")));
-        }
         //Now that we have the disallowed groups, lets merge any of them from seperate groups:
         //TODO this is not an efficient way of doing this
         for (List<Event> pair : disallowedPairs) {
@@ -138,14 +134,12 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 }
             }
         }
-        if (debug) {
-            System.out.println("Event groups after merging:\n"+eventGroups.stream().map(eg -> eg.toDisplayString(refStart)).collect(Collectors.joining("\n")));
-        }
+        dragenEventGroupsMessage("Events groups after merging:", debug, eventGroups, refStart);
 
         //Now we have finished with the work of merging event groups transitively by position and mutually exclusiveness. Now every group should be entirely independant of one another:
         if (eventGroups.stream().map(eg -> eg.populateBitset(disallowedPairs)).anyMatch(b->!b)) {
             // if any of our event groups is too large, abort.
-            if (debug ) System.out.println("Found event group with too many variants! Aborting haplotype building");
+            Utils.printIf(debug, () -> "Found event group with too many variants! Aborting haplotype building");
             return sourceSet;
         }
 
@@ -931,8 +925,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         );
     }
 
-    private static void dragenEventGroupsMessage(final boolean debug, final List<EventGroup> eventGroups, final int startPos) {
-        //Print the event groups
+    private static void dragenEventGroupsMessage(final String prefix, final boolean debug, final List<EventGroup> eventGroups, final int startPos) {
+        Utils.printIf(debug, () -> prefix);
         if (debug) {
             eventGroups.stream().map(eg -> eg.toDisplayString(startPos)).forEach(System.out::println);
         }
