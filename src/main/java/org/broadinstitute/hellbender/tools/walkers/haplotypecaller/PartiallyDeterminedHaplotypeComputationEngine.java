@@ -79,8 +79,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                                                          final Collection<Event> goodPileupEvents,
                                                          final AssemblyBasedCallerArgumentCollection args,
                                                          final SmithWatermanAligner aligner) {
-
         final Haplotype referenceHaplotype = sourceSet.getReferenceHaplotype();
+        final int refStart = (int) referenceHaplotype.getStartPosition();
         final Locatable callingSpan = sourceSet.getRegionForGenotyping().getSpan();
 
         final PileupDetectionArgumentCollection pileupArgs = args.pileupDetectionArgs;
@@ -107,19 +107,19 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
         List<EventGroup> eventGroups = new ArrayList<>();
         int lastEventEnd = -1;
+
         for (Event vc : eventsInOrder) {
             // Break everything into independent groups (don't worry about transitivitiy right now)
-            Double eventKey = dragenStart(vc) - referenceHaplotype.getStartPosition();
+            Double eventKey = dragenStart(vc);
             if (eventKey <= lastEventEnd + 0.5) {
                 eventGroups.get(eventGroups.size()-1).addEvent(vc);
             } else {
                 eventGroups.add(new EventGroup(vc));
             }
-            int newEnd = (int) (vc.getEnd() - referenceHaplotype.getStartPosition());
-            lastEventEnd = Math.max(newEnd, lastEventEnd);
+            lastEventEnd = Math.max(vc.getEnd(), lastEventEnd);
         }
 
-        dragenEventGroupsMessage(debug, eventGroups, (int) referenceHaplotype.getStartPosition());
+        dragenEventGroupsMessage(debug, eventGroups, refStart);
 
 
         // Iterate over all events starting with all indels
@@ -127,11 +127,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         List<List<Event>> disallowedPairs = smithWatermanRealignPairsOfVariantsForEquivalentEvents(referenceHaplotype, aligner, args.getHaplotypeToReferenceSWParameters(), debug, eventsInOrder);
         if (debug) {
             System.out.println("disallowed Variant pairs:");
-            disallowedPairs.stream().map(l -> l.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining("->"))).forEach(System.out::println);
+            disallowedPairs.stream().map(l -> l.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining("->"))).forEach(System.out::println);
         }
 
         if (debug) {
-            System.out.println("Event groups before merging:\n"+eventGroups.stream().map(eg -> eg.toDisplayString((int)referenceHaplotype.getStartPosition())).collect(Collectors.joining("\n")));
+            System.out.println("Event groups before merging:\n"+eventGroups.stream().map(eg -> eg.toDisplayString(refStart)).collect(Collectors.joining("\n")));
         }
         //Now that we have the disallowed groups, lets merge any of them from seperate groups:
         //TODO this is not an efficient way of doing this
@@ -151,7 +151,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             }
         }
         if (debug) {
-            System.out.println("Event groups after merging:\n"+eventGroups.stream().map(eg -> eg.toDisplayString((int)referenceHaplotype.getStartPosition())).collect(Collectors.joining("\n")));
+            System.out.println("Event groups after merging:\n"+eventGroups.stream().map(eg -> eg.toDisplayString(refStart)).collect(Collectors.joining("\n")));
         }
 
         //Now we have finished with the work of merging event groups transitively by position and mutually exclusiveness. Now every group should be entirely independant of one another:
@@ -191,7 +191,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
              * NOTE: we skip the reference allele in the event that we are making determined haplotypes instead of undetermined haplotypes
              */
             for (int IndexOfAllele = (pileupArgs.determinePDHaps?0:-1); IndexOfAllele < determinedVariants.size(); IndexOfAllele++) { //note -1 for I here corresponds to the reference allele at this site
-                if (debug) System.out.println("Working with allele at site: "+(IndexOfAllele ==-1? "[ref:"+(variantSiteGroup.getKey()-referenceHaplotype.getStartPosition())+"]" : PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int)referenceHaplotype.getStartPosition()).apply(determinedVariants.get(IndexOfAllele).asVariantContext())));
+                if (debug) System.out.println("Working with allele at site: "+(IndexOfAllele ==-1? "[ref:"+(variantSiteGroup.getKey()- refStart)+"]" : PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart).apply(determinedVariants.get(IndexOfAllele).asVariantContext())));
                 // This corresponds to the DRAGEN code for
                 // 0 0
                 // 0 1
@@ -250,9 +250,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                     for (int i = 0; i < branchExcludeAlleles.size(); i++) {
                         final int ifinal = i;
                         System.out.println("Branch "+i+" VCs:");
-                        System.out.println("exclude:"+branchExcludeAlleles.get(i).stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int)referenceHaplotype.getStartPosition())).collect(Collectors.joining("->")));
+                        System.out.println("exclude:"+branchExcludeAlleles.get(i).stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining("->")));
                         //to match dragen debug output for personal sanity
-                        System.out.println("include:"+eventsInOrder.stream().filter(variantContext -> !branchExcludeAlleles.get(ifinal).contains(variantContext)).map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int)referenceHaplotype.getStartPosition())).collect(Collectors.joining("->")));
+                        System.out.println("include:"+eventsInOrder.stream().filter(variantContext -> !branchExcludeAlleles.get(ifinal).contains(variantContext)).map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining("->")));
                     }
                 }
 
@@ -319,13 +319,13 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
                         for (List<Event> subset : variantGroupsCombinatorialExpansion) {
                             subset.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
-                            if (debug) System.out.println("Construcing Hap From Events:"+ subset.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining("->")));
+                            if (debug) System.out.println("Construcing Hap From Events:"+ subset.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining("->")));
                             branchHaps.add(constructHaplotypeFromVariants(referenceHaplotype, subset, true));
                         }
                     }
                     // Add the branch haps to the results:
                     if (debug) {
-                        System.out.println("Constructed Haps for Branch"+excludeEvents.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining(",")) + ":");
+                        System.out.println("Constructed Haps for Branch"+excludeEvents.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining(",")) + ":");
                         System.out.println(branchHaps.stream().map(h -> h.getCigar() + " " + h.toString()).collect(Collectors.joining("\n")));
                     }
 
