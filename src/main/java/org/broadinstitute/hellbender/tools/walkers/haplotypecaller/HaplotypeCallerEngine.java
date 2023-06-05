@@ -706,16 +706,7 @@ public class HaplotypeCallerEngine implements AssemblyRegionEvaluator {
                 System.out.println("CallingSpan: " + region.getSpan());
             }
             assemblyResult = PartiallyDeterminedHaplotypeComputationEngine.generatePDHaplotypes(assemblyResult,
-                    assemblyResult.getRegionForGenotyping().getSpan(),
-                    assemblyResult.getReferenceHaplotype(),
-                    assemblyVariants,
-                    badPileupEvents,
-                    goodPileupEvents,
-                    hcArgs.pileupDetectionArgs.snpAdjacentToAssemblyIndel,
-                    aligner,
-                    hcArgs.getHaplotypeToReferenceSWParameters(),
-                    hcArgs.pileupDetectionArgs.determinePDHaps,
-                    hcArgs.pileupDetectionArgs.debugPileupStdout);
+                    badPileupEvents, goodPileupEvents, hcArgs, aligner);
         }
 
         // Legacy Pileupcaller code. Supplement the assembly haps with artifical haps constructed from the discovered pileupcaller
