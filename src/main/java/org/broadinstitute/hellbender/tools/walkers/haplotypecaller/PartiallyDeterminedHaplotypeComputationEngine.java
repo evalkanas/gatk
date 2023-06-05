@@ -106,7 +106,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         SortedMap<Integer, List<Event>> variantsByStartPos = eventsInOrder.stream()
                 .collect(Collectors.groupingBy(Event::getStart, TreeMap::new, Collectors.toList()));
 
-        final List<EventGroup> eventGroups = makeEventGroups(eventsInOrder);
+        final List<EventGroup> eventGroups = clusterEventsIntoOverlappingGroups(eventsInOrder);
         dragenEventGroupsMessage("Events groups before merging:", debug, eventGroups, refStart);
 
         // Iterate over all events starting with all indels
@@ -937,7 +937,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
     }
 
     @NotNull
-    private static List<EventGroup> makeEventGroups(final List<Event> eventsInOrder) {
+    private static List<EventGroup> clusterEventsIntoOverlappingGroups(final List<Event> eventsInOrder) {
         final List<EventGroup> eventGroups = new ArrayList<>();
         int lastEventEnd = -1;
 
