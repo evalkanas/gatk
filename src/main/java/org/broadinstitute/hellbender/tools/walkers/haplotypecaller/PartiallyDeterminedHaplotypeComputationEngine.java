@@ -22,7 +22,6 @@ import org.broadinstitute.hellbender.utils.smithwaterman.SmithWatermanAligner;
 
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Class that manages the complicated steps involved in generating artifical haplotypes for the PDHMM:
@@ -99,11 +98,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                         indels.stream().noneMatch(indel -> event.withinDistanceOf(indel, pileupArgs.snpAdjacentToAssemblyIndel)))
                 .forEach(eventsInOrder::add);
         eventsInOrder.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
-        Utils.printIf(debug, () -> "Variants to PDHapDetermination:\n"+ eventsInOrder.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining("\n")));
+        finalEventsListMessage(referenceHaplotype, debug, eventsInOrder);
 
-
-        // TODO this is where we filter out if indels > 32 (a heuristic known from DRAGEN that is not implemented here)
-        List<Event> vcsAsList = new ArrayList<>(eventsInOrder);
+        // TODO Here we would filter out if indels > 32, a heuristic from DRAGEN that is not implemented here
 
         // NOTE: we iterate over this several times and expect it to be sorted.
         Map<Double, List<Event>> eventsByDRAGENCoordinates = new LinkedHashMap<>();
@@ -137,7 +134,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
         // Iterate over all events starting with all indels
 
-        List<List<Event>> disallowedPairs = smithWatermanRealignPairsOfVariantsForEquivalentEvents(referenceHaplotype, aligner, args.getHaplotypeToReferenceSWParameters(), debug, eventsInOrder, vcsAsList);
+        List<List<Event>> disallowedPairs = smithWatermanRealignPairsOfVariantsForEquivalentEvents(referenceHaplotype, aligner, args.getHaplotypeToReferenceSWParameters(), debug, eventsInOrder);
         if (debug) {
             System.out.println("disallowed Variant pairs:");
             disallowedPairs.stream().map(l -> l.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining("->"))).forEach(System.out::println);
@@ -392,16 +389,16 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      *
      * @return A list of lists of variant contexts that correspond to disallowed groups. This list may be empty if none are found.
      */
-    private static List<List<Event>> smithWatermanRealignPairsOfVariantsForEquivalentEvents(Haplotype referenceHaplotype, SmithWatermanAligner aligner, SWParameters swParameters, boolean debugSite, TreeSet<Event> eventsInOrder, List<Event> eventsAsList) {
+    private static List<List<Event>> smithWatermanRealignPairsOfVariantsForEquivalentEvents(Haplotype referenceHaplotype, SmithWatermanAligner aligner, SWParameters swParameters, boolean debugSite, List<Event> eventsInOrder) {
         List<List<Event>> disallowedPairs = new ArrayList<>();
 
         //Iterate over all 2 element permutations in which one element is an indel and test for alignments
-        for (int i = 0; i < eventsAsList.size(); i++) {
-            final Event firstEvent = eventsAsList.get(i);
+        for (int i = 0; i < eventsInOrder.size(); i++) {
+            final Event firstEvent = eventsInOrder.get(i);
             if (firstEvent.isIndel()) {
                 // For every indel, make every 2-3 element subset (without overlapping) of variants to test for equivalency
-                for (int j = 0; j < eventsAsList.size(); j++) {
-                    final Event secondEvent = eventsAsList.get(j);
+                for (int j = 0; j < eventsInOrder.size(); j++) {
+                    final Event secondEvent = eventsInOrder.get(j);
                     // Don't compare myslef, any overlappers to myself, or indels i've already examined me (to prevent double counting)
                     if (j != i && !eventsOverlapForPDHapsCode(firstEvent, secondEvent, true) && ((!secondEvent.isIndel()) || j > i)) {
                         final List<Event> events = new ArrayList<>(Arrays.asList(firstEvent, secondEvent));
@@ -418,12 +415,12 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         //TODO NOTE: there are some discrepancies with the iteration over 3x variants in some complicated cases involving
         //TODO       lots of transitively disallowed pairs. Hopefully this is a minor effect.
         //Now iterate over all 3 element pairs and make sure none of the
-        for (int i = 0; i < eventsAsList.size(); i++) {
-            final Event firstEvent = eventsAsList.get(i);
+        for (int i = 0; i < eventsInOrder.size(); i++) {
+            final Event firstEvent = eventsInOrder.get(i);
             if (firstEvent.isIndel()) {
                 // For every indel, make every 2-3 element subset (without overlapping) of variants to test for equivalency
-                for (int j = 0; j < eventsAsList.size(); j++) {
-                    final Event secondEvent = eventsAsList.get(j);
+                for (int j = 0; j < eventsInOrder.size(); j++) {
+                    final Event secondEvent = eventsInOrder.get(j);
                     // Don't compare myslef, any overlappers to myself, or indels i've already examined me (to prevent double counting)
                     if (j != i && !eventsOverlapForPDHapsCode(firstEvent, secondEvent, true) && ((!secondEvent.isIndel()) || j > i)) {
                         // if i and j area lready disalowed keep going
@@ -432,8 +429,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                         }
                         final List<Event> events = new ArrayList<>(Arrays.asList(firstEvent, secondEvent));
                         // If our 2 element arrays weren't inequivalent, test subsets of 3 including this:
-                        for (int k = j+1; k < eventsAsList.size(); k++) {
-                            final Event thirdEvent = eventsAsList.get(k);
+                        for (int k = j+1; k < eventsInOrder.size(); k++) {
+                            final Event thirdEvent = eventsInOrder.get(k);
                             if (k != i && !eventsOverlapForPDHapsCode(thirdEvent, firstEvent, true) && !eventsOverlapForPDHapsCode(thirdEvent, secondEvent, true)) {
                                 // if k and j or k and i are disallowed, keep looking
                                 if (disallowedPairs.stream().anyMatch(p -> (p.contains(firstEvent) && p.contains(thirdEvent)) || (p.contains(secondEvent) && p.contains(thirdEvent)))) {
@@ -498,7 +495,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      * @return true if we SHOULD NOT allow the eventsToTest alleles to appear as alleles together in determined haplotypes
      */
     @VisibleForTesting
-    private static boolean constructArtificialHaplotypeAndTestEquivalentEvents(Haplotype referenceHaplotype, SmithWatermanAligner aligner, SWParameters swParameters, TreeSet<Event> events, List<Event> eventsToTest, boolean debugSite) {
+    private static boolean constructArtificialHaplotypeAndTestEquivalentEvents(Haplotype referenceHaplotype, SmithWatermanAligner aligner, SWParameters swParameters, List<Event> events, List<Event> eventsToTest, boolean debugSite) {
         final Haplotype realignHap = constructHaplotypeFromVariants(referenceHaplotype, eventsToTest, false);
         //Special case to capture events that equal the reference (and thus have empty event maps).
         if (Arrays.equals(realignHap.getBases(), referenceHaplotype.getBases())) {
@@ -946,5 +943,13 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             Utils.printIf(debug && !intersection.isEmpty(),
                     () ->"Removing assembly variant due to columnwise heuristics: " + intersection);
         }
+    }
+
+    private static void finalEventsListMessage(final Haplotype referenceHaplotype, final boolean debug, final List<Event> eventsInOrder) {
+        Utils.printIf(debug, () -> "Variants to PDHapDetermination:\n" + eventsInOrder.stream()
+                    .map(Event::asVariantContext)
+                    .map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition()))
+                    .collect(Collectors.joining("\n"))
+        );
     }
 }
