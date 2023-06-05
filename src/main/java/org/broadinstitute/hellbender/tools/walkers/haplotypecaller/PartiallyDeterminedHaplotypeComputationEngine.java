@@ -132,13 +132,17 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             }
         }
         dragenEventGroupsMessage("Events groups after merging:", debug, eventGroups, refStart);
-
-        //Now we have finished with the work of merging event groups transitively by position and mutually exclusiveness. Now every group should be entirely independant of one another:
-        if (eventGroups.stream().map(eg -> eg.populateBitset(disallowedPairs)).anyMatch(b->!b)) {
-            // if any of our event groups is too large, abort.
+        //Now we have finished with the work of merging event groups transitively by position and mutually exclusiveness.
+        // Now every group should be entirely independant of one another:
+        
+        // if any of our merged event groups is too large, abort.
+        if (eventGroups.stream().anyMatch(eg -> eg.size() > MAX_VAR_IN_EVENT_GROUP)) {
             Utils.printIf(debug, () -> "Found event group with too many variants! Aborting haplotype building");
             return sourceSet;
         }
+        eventGroups.forEach(eg -> eg.populateBitset(disallowedPairs));
+
+
 
         Set<Haplotype> outputHaplotypes = new LinkedHashSet<>();
         if (pileupArgs.determinePDHaps) {
@@ -761,12 +765,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          * @param disallowedEvents Pairs of events disallowed
          * @return false if the event group is too large to process
          */
-        public boolean populateBitset(List<List<Event>> disallowedEvents) {
-            if (variantsInBitmapOrder.size() > MAX_VAR_IN_EVENT_GROUP) {
-                return false;
-            }
-            if (variantsInBitmapOrder.size() < 2) {
-                return true;
+        public void populateBitset(List<List<Event>> disallowedEvents) {
+            if (variantsInBitmapOrder.size() < 2 || variantsInBitmapOrder.size() > MAX_VAR_IN_EVENT_GROUP) {
+                return;
             }
 
             allowedEvents = new BitSet(variantsInBitmapOrder.size());
@@ -816,8 +817,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                     }
                 }
             }
-
-            return true;
         }
 
         /**
@@ -891,6 +890,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         public boolean contains(final Event event) {
             return variantContextSet.contains(event);
         }
+
+        public int size() { return variantsInBitmapOrder.size(); }
 
         public void addEvent(final Event event) {
             variantsInBitmapOrder.add(event);
