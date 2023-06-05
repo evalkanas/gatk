@@ -805,6 +805,12 @@ public final class Utils {
         }
     }
 
+    public static void printIf(final boolean condition, final Supplier<String> msg){
+        if (condition){
+            System.out.println(msg.get());
+        }
+    }
+
     /**
      * Check a condition that should always be true and throw an {@link IllegalStateException} if false.  If msg is not a
      * String literal i.e. if it requires computation, use the Supplier<String> version, below.

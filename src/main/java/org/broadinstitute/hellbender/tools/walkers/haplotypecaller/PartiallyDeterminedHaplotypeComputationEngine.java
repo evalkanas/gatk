@@ -1,6 +1,7 @@
 package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.util.Locatable;
@@ -10,6 +11,7 @@ import org.apache.commons.lang3.ArrayUtils;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWOverhangStrategy;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWParameters;
 import org.broadinstitute.hellbender.exceptions.GATKException;
+import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.haplotype.Event;
 import org.broadinstitute.hellbender.utils.haplotype.EventMap;
 import org.broadinstitute.hellbender.utils.haplotype.Haplotype;
@@ -20,6 +22,7 @@ import org.broadinstitute.hellbender.utils.smithwaterman.SmithWatermanAligner;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Class that manages the complicated steps involved in generating artifical haplotypes for the PDHMM:
@@ -73,45 +76,31 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      * @return unchanged assembly result set if failed, updated haplotyeps otherwise
      */
     public static AssemblyResultSet generatePDHaplotypes(final AssemblyResultSet sourceSet,
-                                                         final Collection<Event> badPileupEvents,
+                                                         final Set<Event> badPileupEvents,
                                                          final Collection<Event> goodPileupEvents,
                                                          final AssemblyBasedCallerArgumentCollection args,
                                                          final SmithWatermanAligner aligner) {
-        // Set maxMnpDistance = 0 because we currently don't support MNPs here
-        final SortedSet<Event> assemblyEvents = sourceSet.getVariationEvents(0);
+
         final Haplotype referenceHaplotype = sourceSet.getReferenceHaplotype();
         final Locatable callingSpan = sourceSet.getRegionForGenotyping().getSpan();
 
         final PileupDetectionArgumentCollection pileupArgs = args.pileupDetectionArgs;
         final boolean debug = pileupArgs.debugPileupStdout;
 
-        final TreeSet<Event> eventsInOrder = new TreeSet<>(HAPLOTYPE_SNP_FIRST_COMPARATOR);
-
-        // First we filter the assembly variants based on badness from the graph
-        for (Event delVariant : badPileupEvents) {
-
-            List<Event> variantsToRemove = assemblyEvents.stream().filter(delVariant::equals).collect(Collectors.toList());
-
-            if (!variantsToRemove.isEmpty()) {
-                if (debug) System.out.println("Removing assembly variants due to columnwise heuristics: " + variantsToRemove);
-                variantsToRemove.forEach(assemblyEvents::remove);
-            }
-        }
-
-        // Ignore any snps from pileups that were close to indels
-        final List<Event> givenAllelesFiltered = goodPileupEvents.stream()
-                .filter(event -> event.isIndel() ||
-                        assemblyEvents.stream().filter(Event::isIndel).noneMatch(indel -> event.withinDistanceOf(indel, pileupArgs.snpAdjacentToAssemblyIndel)))
-                .collect(Collectors.toList());
-
+        // start with all assembled events, using maxMnpDistance = 0 because we currently don't support MNPs here,
+        // then remove bad pileup events and add good pileup events other than SNPs too close to indels
         // TODO make sure this TREE-SET is properly comparing the VCs
-        eventsInOrder.addAll(assemblyEvents);
-        eventsInOrder.addAll(givenAllelesFiltered);
+        removeBadPileupEventsMessage(debug, sourceSet, badPileupEvents);
+        final List<Event> eventsInOrder = sourceSet.getVariationEvents(0).stream()
+                .filter(event -> !badPileupEvents.contains(event))
+                .collect(Collectors.toList());
+        final List<Event> indels = eventsInOrder.stream().filter(Event::isIndel).collect(Collectors.toList());
+        goodPileupEvents.stream().filter(event -> event.isIndel() ||
+                        indels.stream().noneMatch(indel -> event.withinDistanceOf(indel, pileupArgs.snpAdjacentToAssemblyIndel)))
+                .forEach(eventsInOrder::add);
+        eventsInOrder.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
+        Utils.printIf(debug, () -> "Variants to PDHapDetermination:\n"+ eventsInOrder.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining("\n")));
 
-        if (debug) {
-            System.out.println("Variants to PDHapDetermination:\n"+
-                    eventsInOrder.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition())).collect(Collectors.joining("\n")));
-        }
 
         // TODO this is where we filter out if indels > 32 (a heuristic known from DRAGEN that is not implemented here)
         List<Event> vcsAsList = new ArrayList<>(eventsInOrder);
@@ -948,6 +937,14 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             variantContextSet.addAll(other.variantsInBitmapOrder);
             allowedEvents = null;
             return this;
+        }
+    }
+
+    private static void removeBadPileupEventsMessage(final boolean debug, final AssemblyResultSet assemblyResultSet, final Set<Event> badPileupEvents) {
+        if (debug) {
+            final Set<Event> intersection = Sets.intersection(assemblyResultSet.getVariationEvents(0), badPileupEvents);
+            Utils.printIf(debug && !intersection.isEmpty(),
+                    () ->"Removing assembly variant due to columnwise heuristics: " + intersection);
         }
     }
 }
