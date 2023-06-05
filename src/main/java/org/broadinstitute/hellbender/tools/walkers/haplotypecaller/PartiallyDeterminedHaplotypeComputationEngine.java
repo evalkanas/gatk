@@ -19,6 +19,7 @@ import org.broadinstitute.hellbender.utils.haplotype.PartiallyDeterminedHaplotyp
 import org.broadinstitute.hellbender.utils.read.CigarBuilder;
 import org.broadinstitute.hellbender.utils.read.CigarUtils;
 import org.broadinstitute.hellbender.utils.smithwaterman.SmithWatermanAligner;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -105,20 +106,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         SortedMap<Integer, List<Event>> variantsByStartPos = eventsInOrder.stream()
                 .collect(Collectors.groupingBy(Event::getStart, TreeMap::new, Collectors.toList()));
 
-        List<EventGroup> eventGroups = new ArrayList<>();
-        int lastEventEnd = -1;
-
-        for (Event vc : eventsInOrder) {
-            // Break everything into independent groups (don't worry about transitivitiy right now)
-            Double eventKey = dragenStart(vc);
-            if (eventKey <= lastEventEnd + 0.5) {
-                eventGroups.get(eventGroups.size()-1).addEvent(vc);
-            } else {
-                eventGroups.add(new EventGroup(vc));
-            }
-            lastEventEnd = Math.max(vc.getEnd(), lastEventEnd);
-        }
-
+        final List<EventGroup> eventGroups = makeEventGroups(eventsInOrder);
         dragenEventGroupsMessage(debug, eventGroups, refStart);
 
 
@@ -952,5 +940,21 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
     private static double dragenStart(final Event event) {
         return event.getStart() + (event.isSimpleInsertion() ? 0.5 : 0) + (event.isSimpleDeletion() ? 1 : 0);
+    }
+
+    @NotNull
+    private static List<EventGroup> makeEventGroups(final List<Event> eventsInOrder) {
+        final List<EventGroup> eventGroups = new ArrayList<>();
+        int lastEventEnd = -1;
+
+        for (final Event event : eventsInOrder) {
+            if (dragenStart(event) > lastEventEnd + 0.5) {
+                eventGroups.add(new EventGroup());
+            }
+            eventGroups.get(eventGroups.size()-1).addEvent(event);
+            lastEventEnd = Math.max(event.getEnd(), lastEventEnd);
+        }
+
+        return eventGroups;
     }
 }
