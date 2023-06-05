@@ -95,14 +95,14 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         // then remove bad pileup events and add good pileup events other than SNPs too close to indels
         // TODO make sure this TREE-SET is properly comparing the VCs
         removeBadPileupEventsMessage(debug, sourceSet, badPileupEvents);
-        final List<Event> eventsInOrder = sourceSet.getVariationEvents(0).stream()
+        final Set<Event> allEvents = sourceSet.getVariationEvents(0).stream()
                 .filter(event -> !badPileupEvents.contains(event))
-                .collect(Collectors.toList());
-        final List<Event> indels = eventsInOrder.stream().filter(Event::isIndel).collect(Collectors.toList());
+                .collect(Collectors.toSet());
+        final List<Event> indels = allEvents.stream().filter(Event::isIndel).collect(Collectors.toList());
         goodPileupEvents.stream().filter(event -> event.isIndel() ||
                         indels.stream().noneMatch(indel -> event.withinDistanceOf(indel, pileupArgs.snpAdjacentToAssemblyIndel)))
-                .forEach(eventsInOrder::add);
-        eventsInOrder.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
+                .forEach(allEvents::add);
+        final List<Event> eventsInOrder = allEvents.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).collect(Collectors.toList());
         finalEventsListMessage(refStart, debug, eventsInOrder);
 
         // TODO Here we would filter out if indels > 32, a heuristic from DRAGEN that is not implemented here
@@ -115,7 +115,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         dragenDisallowedGroupsMessage(refStart, debug, disallowedPairsAndTrios);
 
         final List<EventGroup> eventGroups = getEventGroupClusters(eventsInOrder, disallowedPairsAndTrios);
-
         dragenEventGroupsMessage("Events groups:", debug, eventGroups, refStart);
         
         // if any of our merged event groups is too large, abort.
