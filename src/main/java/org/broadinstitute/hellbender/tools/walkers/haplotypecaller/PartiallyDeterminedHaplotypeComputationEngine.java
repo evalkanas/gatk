@@ -99,7 +99,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                         indels.stream().noneMatch(indel -> event.withinDistanceOf(indel, pileupArgs.snpAdjacentToAssemblyIndel)))
                 .forEach(eventsInOrder::add);
         eventsInOrder.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
-        finalEventsListMessage(referenceHaplotype, debug, eventsInOrder);
+        finalEventsListMessage(refStart, debug, eventsInOrder);
 
         // TODO Here we would filter out if indels > 32, a heuristic from DRAGEN that is not implemented here
 
@@ -112,10 +112,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         // Iterate over all events starting with all indels
 
         List<List<Event>> disallowedPairs = smithWatermanRealignPairsOfVariantsForEquivalentEvents(referenceHaplotype, aligner, args.getHaplotypeToReferenceSWParameters(), debug, eventsInOrder);
-        if (debug) {
-            System.out.println("disallowed Variant pairs:");
-            disallowedPairs.stream().map(l -> l.stream().map(Event::asVariantContext).map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart)).collect(Collectors.joining("->"))).forEach(System.out::println);
-        }
+        dragenDisallowedGroupsMessage(refStart, debug, disallowedPairs);
 
         //Now that we have the disallowed groups, lets merge any of them from seperate groups:
         //TODO this is not an efficient way of doing this
@@ -917,19 +914,23 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         }
     }
 
-    private static void finalEventsListMessage(final Haplotype referenceHaplotype, final boolean debug, final List<Event> eventsInOrder) {
-        Utils.printIf(debug, () -> "Variants to PDHapDetermination:\n" + eventsInOrder.stream()
-                    .map(Event::asVariantContext)
-                    .map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString((int) referenceHaplotype.getStartPosition()))
-                    .collect(Collectors.joining("\n"))
-        );
+    private static void finalEventsListMessage(final int refStart, final boolean debug, final List<Event> eventsInOrder) {
+        Utils.printIf(debug, () -> "Variants to PDHapDetermination:\n" + eventsAsDragenString(refStart, eventsInOrder));
     }
 
     private static void dragenEventGroupsMessage(final String prefix, final boolean debug, final List<EventGroup> eventGroups, final int startPos) {
-        Utils.printIf(debug, () -> prefix);
-        if (debug) {
-            eventGroups.stream().map(eg -> eg.toDisplayString(startPos)).forEach(System.out::println);
-        }
+        Utils.printIf(debug, () -> prefix + eventGroups.stream().map(eg -> eg.toDisplayString(startPos)).collect(Collectors.joining("\n")));
+    }
+
+    private static void dragenDisallowedGroupsMessage(int refStart, boolean debug, List<List<Event>> disallowedPairs) {
+        Utils.printIf(debug, () -> "disallowed groups:" + disallowedPairs.stream().map(group -> eventsAsDragenString(refStart, group)).collect(Collectors.joining("\n")));
+    }
+
+    private static String eventsAsDragenString(final int refStart, final List<Event> events) {
+        return events.stream()
+                .map(Event::asVariantContext)
+                .map(PartiallyDeterminedHaplotype.getDRAGENDebugVariantContextString(refStart))
+                .collect(Collectors.joining("\n"));
     }
 
     private static double dragenStart(final Event event) {
