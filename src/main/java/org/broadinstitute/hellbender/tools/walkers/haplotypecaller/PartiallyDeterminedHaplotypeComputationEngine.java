@@ -1,6 +1,7 @@
 package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
@@ -140,10 +141,10 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          */
         for (int indexOfDeterminedInR = 0; indexOfDeterminedInR < entriesRInOrder.size(); indexOfDeterminedInR++) {
             Map.Entry<Integer, List<Event>> variantSiteGroup = entriesRInOrder.get(indexOfDeterminedInR);
-            if (debug) System.out.println("working with variants of the group: " + variantSiteGroup);
+            Utils.printIf(debug, () -> "working with variants of the group: " + variantSiteGroup);
             // Skip
-            if (entriesRInOrder.get(indexOfDeterminedInR).getKey() < callingSpan.getStart() || entriesRInOrder.get(indexOfDeterminedInR).getKey() > callingSpan.getEnd()) {
-                if (debug) System.out.println("Skipping determined hap construction! otside of span: "+callingSpan);
+            if (!Range.closed(callingSpan.getStart(), callingSpan.getEnd()).contains(entriesRInOrder.get(indexOfDeterminedInR).getKey())) {
+                Utils.printIf(debug, () -> "Skipping determined hap construction! Outside of span: " + callingSpan);
                 continue;
             }
 
