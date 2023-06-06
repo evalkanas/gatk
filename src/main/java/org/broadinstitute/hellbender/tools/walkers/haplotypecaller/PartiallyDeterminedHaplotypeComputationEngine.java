@@ -26,6 +26,7 @@ import org.jgrapht.alg.ConnectivityInspector;
 import org.jgrapht.graph.DefaultEdge;
 import org.jgrapht.graph.SimpleGraph;
 
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -480,7 +481,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
         byte[] refbases = refHap.getBases();
         CigarBuilder runningCigar = new CigarBuilder();
-        byte[] newRefBases = {};
+        final ByteBuffer newRefBases = ByteBuffer.allocate(refHap.length() + events.stream().mapToInt(e -> e.altAllele().length() - e.refAllele().length()).sum());
 
         //ASSUME sorted for now
         // use the reverse list to save myself figuring out cigars for right now
@@ -512,21 +513,23 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             }
 
             if (refSpan > 0) {
-                newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, intermediateRefStartPosition, event.getStart() - refStart)); // bases before the variant
+                // bases before the variant
+                newRefBases.put(ArrayUtils.subarray(refbases, intermediateRefStartPosition, event.getStart() - refStart));
             }
-            // Handle the ref base for indels that exlcude their ref bases
+            // Handle the ref base for indels that excude their ref bases
             final byte[] altBases = (refAllele.length() == altAllele.length() || includeRefBaseForIndel) ? altAllele.getBases() :
                     Arrays.copyOfRange(altAllele.getBases(),1, altAllele.length());
-            newRefBases = ArrayUtils.addAll(newRefBases, altBases);
+            newRefBases.put(altBases);
 
             positionOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
         int refStartIndex = positionOfNextBaseToAdd - refStart;
-        newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
+        // bases between the previous event and the next
+        newRefBases.put(ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
         runningCigar.add(new CigarElement(refbases.length - refStartIndex, CigarOperator.M));
 
-        final Haplotype outHaplotype = new Haplotype(newRefBases, false, refHap.getGenomeLocation(), runningCigar.make());
+        final Haplotype outHaplotype = new Haplotype(newRefBases.array(), false, refHap.getGenomeLocation(), runningCigar.make());
         if (setEventMap) {
             EventMap.buildEventMapsForHaplotypes(Collections.singletonList(outHaplotype), refHap.getBases(), refHap.getGenomeLocation(), false,0);
             // NOTE: we set this AFTER generating the event maps because hte event map code above is being generated from the ref hap so this offset will cause out of bounds errors
