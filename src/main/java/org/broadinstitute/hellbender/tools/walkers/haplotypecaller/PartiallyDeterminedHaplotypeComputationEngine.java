@@ -8,6 +8,7 @@ import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.util.Locatable;
 import htsjdk.samtools.util.Tuple;
 import htsjdk.variant.variantcontext.Allele;
+import org.apache.commons.collections.ListUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWOverhangStrategy;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWParameters;
@@ -253,31 +254,20 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                         variantGroupsCombinatorialExpansion.add(new ArrayList<>());
 
                         for (final int secondStart : variantsByStartPos.keySet()) {
-                            // We reduce combinatorial expansion by saying each allele is the first variant in the list, thus preventing double counting.
-                            if (secondStart < start) {
-                                continue;
-                            }
                             if (variantGroupsCombinatorialExpansion.size() > MAX_BRANCH_PD_HAPS) {
-                                if(debug ) System.out.println("Too many branch haplotypes ["+variantGroupsCombinatorialExpansion.size()+"] generated from site, falling back on assebmly variants!");
+                                Utils.printIf(debug, () -> "Too many branch haplotypes ["+variantGroupsCombinatorialExpansion.size()+"] generated from site, falling back on assebmly variants!");
                                 return sourceSet;
                             }
                             // Iterate through the growing combinatorial expansion of haps, split it into either having or not having the variant.
                             if (secondStart == start) {
-                                for (List<Event> hclist : variantGroupsCombinatorialExpansion) {
-                                    hclist.add(determinedEventToTest);
-                                }
-                            // Othewise make sure to include the combinatorial expansion of events at the other site
-                            } else {
-                                List<List<Event>> hapsPerVCsAtRSite = new ArrayList<>();
-                                for (Event vc : variantsByStartPos.get(secondStart)) {
-                                    for (List<Event> hclist : variantGroupsCombinatorialExpansion) {
-                                        if (!excludeEvents.contains(vc)) {
-                                            List<Event> newList = new ArrayList<>(hclist);
-                                            newList.add(vc);
-                                            hapsPerVCsAtRSite.add(newList);
-                                        }
-                                    }
-                                }
+                                variantGroupsCombinatorialExpansion.forEach(hclist -> hclist.add(determinedEventToTest));
+                                // Otherwise make sure to include the combinatorial expansion of events at the other site
+                            } else if (secondStart > start) {
+                                List<List<Event>> hapsPerVCsAtRSite = variantsByStartPos.get(secondStart).stream()
+                                        .filter(vc -> !excludeEvents.contains(vc))
+                                        .flatMap(vc -> variantGroupsCombinatorialExpansion.stream().map(hclist -> growEventList(hclist, vc)))
+                                        .collect(Collectors.toList());
+
                                 //Add them after to prevent accidentally adding duplicates of events at a site
                                 variantGroupsCombinatorialExpansion.addAll(hapsPerVCsAtRSite);
                             }
@@ -954,5 +944,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 .map(set -> set.stream().sorted(Comparator.comparingInt(Event::getStart)).collect(Collectors.toList()))
                 .map(EventGroup::new)
                 .collect(Collectors.toList());
+    }
+
+    private static final List<Event> growEventList(final List<Event> eventList, final Event newEvent) {
+        final List<Event> result = new ArrayList<>(eventList);
+        result.add(newEvent);
+        return result;
     }
 }
