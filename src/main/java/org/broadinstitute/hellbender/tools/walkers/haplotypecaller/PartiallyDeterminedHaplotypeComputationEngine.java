@@ -478,8 +478,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         //ASSERT that everything is fully overlapping the reference.
         events.stream().forEach(v -> {if (!refHap.getGenomeLocation().contains(v)) throw new GATKException("Provided Variant Context"+v+"doesn't overlap haplotype "+refHap);});
 
-        final long genomicStartPosition = refHap.getStartPosition();
-        long refOffsetOfNextBaseToAdd = genomicStartPosition;
+        final long refStart = refHap.getStartPosition();
+        long positionOfNextBaseToAdd = refStart;
 
         byte[] refbases = refHap.getBases();
         CigarBuilder runningCigar = new CigarBuilder();
@@ -491,17 +491,17 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             Allele refAllele = event.refAllele();
             Allele altAllele = event.altAllele();
 
-            int intermediateRefStartPosition = (int) (refOffsetOfNextBaseToAdd - genomicStartPosition);
-            int intermediateRefEndPosition = Math.toIntExact(event.getStart() - genomicStartPosition);
+            int intermediateRefStartPosition = (int) (positionOfNextBaseToAdd - refStart);
 
-            if ((event.isIndel() && intermediateRefEndPosition - intermediateRefStartPosition < -1) || (!event.isIndel() && intermediateRefEndPosition - intermediateRefStartPosition < 0)) {//todo clean this up
+            int refSpan = Math.toIntExact(event.getStart() - positionOfNextBaseToAdd);
+            if ((event.isIndel() && refSpan < -1) || (!event.isIndel() && refSpan < 0)) {//todo clean this up
                 throw new GATKException("Variant "+event+" is out of order in the PD event list: "+events);
             }
-            if (intermediateRefEndPosition - intermediateRefStartPosition > 0) { // Append the cigar element for the anchor base if necessary.
-                runningCigar.add(new CigarElement(intermediateRefEndPosition - intermediateRefStartPosition, CigarOperator.M));
+            if (refSpan > 0) { // Append the cigar element for the anchor base if necessary.
+                runningCigar.add(new CigarElement(refSpan, CigarOperator.M));
             }
             // Include the ref base for indel if the base immediately proceeding this event is not already tracked
-            boolean includeRefBaseForIndel = event.isIndel() && (intermediateRefStartPosition <= intermediateRefEndPosition);
+            boolean includeRefBaseForIndel = event.isIndel() && (0 <= refSpan);
 
             CigarElement newCigarElement;
             if (refAllele.length() == altAllele.length()) {
@@ -517,8 +517,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             }
             runningCigar.add(newCigarElement);
 
-            if (intermediateRefEndPosition - intermediateRefStartPosition > 0) {
-                newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, intermediateRefStartPosition, (int) (event.getStart() - genomicStartPosition))); // bases before the variant
+            if (refSpan > 0) {
+                newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, intermediateRefStartPosition, (int) (event.getStart() - refStart))); // bases before the variant
             }
             // Handle the ref base for indels that exlcude their ref bases
             if (refAllele.length() != altAllele.length() && !includeRefBaseForIndel) {
@@ -527,11 +527,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             } else {
                 newRefBases = ArrayUtils.addAll(newRefBases, altAllele.getBases()); // refbases added
             }
-            refOffsetOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
+            positionOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
         // Finish off the haplotype with the final bases
-        int refStartIndex = (int) (refOffsetOfNextBaseToAdd - genomicStartPosition);
+        int refStartIndex = (int) (positionOfNextBaseToAdd - refStart);
         newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
         runningCigar.add(new CigarElement(refbases.length - refStartIndex, CigarOperator.M));
 
