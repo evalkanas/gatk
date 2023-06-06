@@ -54,7 +54,7 @@ public class AlleleLikelihoodWriter implements AutoCloseable {
         try {
             if (outputInterval == null || outputInterval.contains(first_hap.getLocation())) {
                 output.write(String.format("> Location %s:%d-%d\n", first_hap.getLocation().getContig(),
-                        first_hap.getStartPosition(), first_hap.getStopPosition()));
+                        first_hap.getStart(), first_hap.getEnd()));
                 output.write(">> Haplotypes\n");
                 for (int i = 0; i < haplotypes.size(); i++) {
                     output.write(String.format("%04d\t%s\n", i, haplotypes.get(i).toString()));

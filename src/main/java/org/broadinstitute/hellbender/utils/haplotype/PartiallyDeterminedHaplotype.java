@@ -135,7 +135,7 @@ public final class  PartiallyDeterminedHaplotype extends Haplotype {
         String output = "HapLen:"+length() +", "+new String(getDisplayBases());
         output = output + "\nUnresolved Bases["+alternateBases.length+"] "+Arrays.toString(alternateBases);
         return output + "\n"+getCigar().toString()+" "+ constituentBuiltEvents.stream()
-                .map(v ->(v==this.alleleBearingEvent ?"*":"")+getDRAGENDebugVariantContextString((int)getStartPosition()).apply(v.asVariantContext()) )
+                .map(v ->(v==this.alleleBearingEvent ?"*":"")+getDRAGENDebugVariantContextString(getStart()).apply(v.asVariantContext()) )
                 .collect(Collectors.joining("->"));
     }
 
