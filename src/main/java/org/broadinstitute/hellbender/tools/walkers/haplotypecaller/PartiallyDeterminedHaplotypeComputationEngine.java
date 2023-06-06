@@ -515,12 +515,10 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, intermediateRefStartPosition, event.getStart() - refStart)); // bases before the variant
             }
             // Handle the ref base for indels that exlcude their ref bases
-            if (refAllele.length() != altAllele.length() && !includeRefBaseForIndel) {
-                newRefBases = ArrayUtils.addAll(newRefBases, Arrays.copyOfRange(altAllele.getBases(),1, altAllele.length()));
-            // else add the snp
-            } else {
-                newRefBases = ArrayUtils.addAll(newRefBases, altAllele.getBases()); // refbases added
-            }
+            final byte[] altBases = (refAllele.length() == altAllele.length() || includeRefBaseForIndel) ? altAllele.getBases() :
+                    Arrays.copyOfRange(altAllele.getBases(),1, altAllele.length());
+            newRefBases = ArrayUtils.addAll(newRefBases, altBases);
+
             positionOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
