@@ -500,19 +500,16 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // Include the ref base for indel if the base immediately proceeding this event is not already tracked
             boolean includeRefBaseForIndel = event.isIndel() && (0 <= refSpan);
 
-            CigarElement newCigarElement;
             if (refAllele.length() == altAllele.length()) {
-                newCigarElement = new CigarElement(refAllele.length(), CigarOperator.X);
+                runningCigar.add(new CigarElement(refAllele.length(), CigarOperator.X));
             } else {
                 // If the last base was filled by another event, don't attempt to fill in the indel ref base.
                 if (includeRefBaseForIndel) {
                     runningCigar.add(new CigarElement(1, CigarOperator.M)); //When we add an indel we end up inserting a matching base
                 }
-                newCigarElement = new CigarElement(Math.abs(altAllele.length() - refAllele.length()),
-                        refAllele.length() > altAllele.length() ?
-                                CigarOperator.D : CigarOperator.I);
+                runningCigar.add(new CigarElement(Math.abs(altAllele.length() - refAllele.length()),
+                        refAllele.length() > altAllele.length() ? CigarOperator.D : CigarOperator.I));
             }
-            runningCigar.add(newCigarElement);
 
             if (refSpan > 0) {
                 newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, intermediateRefStartPosition, event.getStart() - refStart)); // bases before the variant
@@ -527,7 +524,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             positionOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
-        // Finish off the haplotype with the final bases
         int refStartIndex = positionOfNextBaseToAdd - refStart;
         newRefBases = ArrayUtils.addAll(newRefBases, ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
         runningCigar.add(new CigarElement(refbases.length - refStartIndex, CigarOperator.M));
