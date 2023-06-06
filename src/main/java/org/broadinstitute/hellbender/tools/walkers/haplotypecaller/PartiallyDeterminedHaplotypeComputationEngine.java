@@ -471,12 +471,10 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      */
     @VisibleForTesting
     public static Haplotype constructHaplotypeFromVariants(final Haplotype refHap, final List<Event> events, final boolean setEventMap) {
-        //ASSERT that the base is ref and cool
-        if (!refHap.isReference() || refHap.getCigar().numCigarElements() > 1) {
-            throw new GATKException("This is not a valid base haplotype for construction");
-        }
+        Utils.validate(refHap.isReference() && refHap.getCigar().numCigarElements() == 1, "This is not a valid base haplotype for construction");
+
         //ASSERT that everything is fully overlapping the reference.
-        events.stream().forEach(v -> {if (!refHap.getGenomeLocation().contains(v)) throw new GATKException("Provided Variant Context"+v+"doesn't overlap haplotype "+refHap);});
+        events.stream().forEach(v -> Utils.validate(refHap.getGenomeLocation().contains(v), () -> "Provided Variant Context"+v+"doesn't overlap haplotype "+refHap));
 
         final long refStart = refHap.getStartPosition();
         long positionOfNextBaseToAdd = refStart;
