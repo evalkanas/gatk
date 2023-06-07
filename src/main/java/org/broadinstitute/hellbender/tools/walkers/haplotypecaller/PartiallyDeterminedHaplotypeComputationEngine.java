@@ -477,54 +477,37 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         events.stream().forEach(v -> Utils.validate(refHap.contains(v), () -> "Provided Variant Context"+v+"doesn't overlap haplotype "+refHap));
 
         final int refStart = refHap.getStart();
-        int positionOfNextBaseToAdd = refStart;
+        int lastPositionAdded = refStart;   // genomic coordinate
 
         byte[] refbases = refHap.getBases();
         CigarBuilder runningCigar = new CigarBuilder();
-        final ByteBuffer newRefBases = ByteBuffer.allocate(refHap.length() + events.stream().mapToInt(e -> e.altAllele().length() - e.refAllele().length()).sum());
+        final int resultHaplotypeLength = refHap.length() + events.stream().mapToInt(e -> e.altAllele().length() - e.refAllele().length()).sum();
+        final ByteBuffer newRefBases = ByteBuffer.allocate(resultHaplotypeLength);
 
         //ASSUME sorted for now
-        // use the reverse list to save myself figuring out cigars for right now
         for (Event event : events) {
             Allele refAllele = event.refAllele();
             Allele altAllele = event.altAllele();
 
-            int intermediateRefStartPosition = positionOfNextBaseToAdd - refStart;
+            final int actualStart = event.getStart() + (event.isIndel() ? 1 : 0);   // the +1 for indels accounts for the initial alt=ref dummy base
 
-            int refSpan = Math.toIntExact(event.getStart() - positionOfNextBaseToAdd);
-            if ((event.isIndel() && refSpan < -1) || (!event.isIndel() && refSpan < 0)) {//todo clean this up
-                throw new GATKException("Variant "+event+" is out of order in the PD event list: "+events);
-            }
-            if (refSpan > 0) { // Append the cigar element for the anchor base if necessary.
-                runningCigar.add(new CigarElement(refSpan, CigarOperator.M));
-            }
-            // Include the ref base for indel if the base immediately proceeding this event is not already tracked
-            boolean includeRefBaseForIndel = event.isIndel() && (0 <= refSpan);
+            int basesBeforeNextEvent = actualStart - lastPositionAdded;
+            Utils.validate(basesBeforeNextEvent >= 0, () -> "PD event list: " + events + " is out of order.");
+            runningCigar.add(new CigarElement(basesBeforeNextEvent, CigarOperator.M));
 
-            if (refAllele.length() == altAllele.length()) {
-                runningCigar.add(new CigarElement(refAllele.length(), CigarOperator.X));
-            } else {
-                // If the last base was filled by another event, don't attempt to fill in the indel ref base.
-                if (includeRefBaseForIndel) {
-                    runningCigar.add(new CigarElement(1, CigarOperator.M)); //When we add an indel we end up inserting a matching base
-                }
-                runningCigar.add(new CigarElement(Math.abs(altAllele.length() - refAllele.length()),
-                        refAllele.length() > altAllele.length() ? CigarOperator.D : CigarOperator.I));
-            }
+            final int altRefLengthDiff = altAllele.length() - refAllele.length();
+            final CigarElement eventElement = altRefLengthDiff == 0 ? new CigarElement(refAllele.length(), CigarOperator.X) :
+                    new CigarElement(Math.abs(altRefLengthDiff), altRefLengthDiff < 0 ? CigarOperator.D : CigarOperator.I);
+            runningCigar.add(eventElement);
 
-            if (refSpan > 0) {
-                // bases before the variant
-                newRefBases.put(ArrayUtils.subarray(refbases, intermediateRefStartPosition, event.getStart() - refStart));
-            }
-            // Handle the ref base for indels that excude their ref bases
-            final byte[] altBases = (refAllele.length() == altAllele.length() || includeRefBaseForIndel) ? altAllele.getBases() :
-                    Arrays.copyOfRange(altAllele.getBases(),1, altAllele.length());
-            newRefBases.put(altBases);
+            // bases before the event, including the dummy initial indel base, followed by event bases, excluding the dummy indel base
+            newRefBases.put(ArrayUtils.subarray(refbases, lastPositionAdded - refStart, actualStart - refStart));
+            newRefBases.put(altRefLengthDiff == 0 ? altAllele.getBases() : Arrays.copyOfRange(altAllele.getBases(),1, altAllele.length()));
 
-            positionOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
+            lastPositionAdded = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
-        int refStartIndex = positionOfNextBaseToAdd - refStart;
+        int refStartIndex = lastPositionAdded - refStart;
         // bases between the previous event and the next
         newRefBases.put(ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
         runningCigar.add(new CigarElement(refbases.length - refStartIndex, CigarOperator.M));
