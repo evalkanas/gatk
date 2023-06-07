@@ -5,7 +5,9 @@ import com.netflix.servo.util.Objects;
 import htsjdk.samtools.Cigar;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.VariantContext;
+import org.broadinstitute.hellbender.utils.BaseUtils;
 import org.broadinstitute.hellbender.utils.SimpleInterval;
+import org.broadinstitute.hellbender.utils.Utils;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -68,6 +70,22 @@ public final class  PartiallyDeterminedHaplotype extends Haplotype {
     final public static byte G = 32;
     final public static byte T = 64;
     final public static byte N = (byte) 128;
+
+    private static final int UNEXPECTED_BASE = -1;
+    private static final int[] BASE_TO_BIT_MAP = new int[256];
+    static {
+        Arrays.fill(BASE_TO_BIT_MAP, UNEXPECTED_BASE);
+        BASE_TO_BIT_MAP['A'] = 8;
+        BASE_TO_BIT_MAP['a'] = 8;
+        BASE_TO_BIT_MAP['C'] = 16;
+        BASE_TO_BIT_MAP['c'] = 16;
+        BASE_TO_BIT_MAP['G'] = 32;
+        BASE_TO_BIT_MAP['g'] = 32;
+        BASE_TO_BIT_MAP['T'] = 64;
+        BASE_TO_BIT_MAP['t'] = 64;
+        BASE_TO_BIT_MAP['N'] = (byte) 128;
+        BASE_TO_BIT_MAP['n'] = (byte) 128;
+    }
 
     public byte[] getAlternateBases() {
         return alternateBases;
@@ -193,28 +211,12 @@ public final class  PartiallyDeterminedHaplotype extends Haplotype {
     public static byte[] getPDBytesForHaplotypes(final Allele refAllele, final Allele altAllele) {
         // Asserting we are either indel OR SNP
         byte[] output = new byte[altAllele.length() == refAllele.length() ? refAllele.length() : refAllele.length()-1 ];
-        // SNP case
         if (altAllele.length() == refAllele.length()){
             output[0] += SNP;
-            switch (altAllele.getBases()[0]) {
-                case 'A':
-                    output[0] += A;
-                    break;
-                case 'C':
-                    output[0] += C;
-                    break;
-                case 'T':
-                    output[0] += T;
-                    break;
-                case 'G':
-                    output[0] += G;
-                    break;
-                default:
-                    throw new RuntimeException("Found unexpected base in alt alleles");
-            }
-
-            // DEL case
-        } else {
+            final int bit = BASE_TO_BIT_MAP[altAllele.getBases()[0]];
+            Utils.validate(bit != UNEXPECTED_BASE, "Found unexpected base in alt alleles");
+            output[0] += bit;
+        } else {  // DEL case
             output[0] += DEL_START;
             output[output.length - 1] += DEL_END; //TODO guardrail this
         }

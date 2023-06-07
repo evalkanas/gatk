@@ -11,7 +11,6 @@ import htsjdk.variant.variantcontext.Allele;
 import org.apache.commons.lang3.ArrayUtils;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWOverhangStrategy;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWParameters;
-import org.broadinstitute.hellbender.exceptions.GATKException;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.haplotype.Event;
 import org.broadinstitute.hellbender.utils.haplotype.EventMap;
@@ -26,6 +25,8 @@ import org.jgrapht.alg.ConnectivityInspector;
 import org.jgrapht.graph.DefaultEdge;
 import org.jgrapht.graph.SimpleGraph;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -276,7 +277,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                         for (List<Event> subset : variantGroupsCombinatorialExpansion) {
                             subset.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
                             Utils.printIf(debug,  () -> "Constructing Hap From Events:" + eventsAsDragenString(refStart, subset));
-                            branchHaps.add(constructHaplotypeFromVariants(referenceHaplotype, subset, true));
+                            branchHaps.add(constructHaplotypeFromEvents(referenceHaplotype, subset, true));
                         }
                     }
                     // Add the branch haps to the results:
@@ -440,7 +441,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      */
     @VisibleForTesting
     private static boolean constructArtificialHaplotypeAndTestEquivalentEvents(Haplotype referenceHaplotype, SmithWatermanAligner aligner, SWParameters swParameters, List<Event> events, List<Event> eventsToTest, boolean debug) {
-        final Haplotype realignHap = constructHaplotypeFromVariants(referenceHaplotype, eventsToTest, false);
+        final Haplotype realignHap = constructHaplotypeFromEvents(referenceHaplotype, eventsToTest, false);
         //Special case to capture events that equal the reference (and thus have empty event maps).
         if (Arrays.equals(realignHap.getBases(), referenceHaplotype.getBases())) {
             if (debug) System.out.println("Events add up to the reference! disallowing pair");
@@ -470,7 +471,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      * NOTE: However this class does NOT accept multiple SNPS overlapping or SNPs overlapping deletions
      */
     @VisibleForTesting
-    public static Haplotype constructHaplotypeFromVariants(final Haplotype refHap, final List<Event> events, final boolean setEventMap) {
+    public static Haplotype constructHaplotypeFromEvents(final Haplotype refHap, final List<Event> events, final boolean setEventMap) {
         Utils.validate(refHap.isReference() && refHap.getCigar().numCigarElements() == 1, "This is not a valid base haplotype for construction");
 
         //ASSERT that everything is fully overlapping the reference.
@@ -482,7 +483,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         byte[] refbases = refHap.getBases();
         CigarBuilder runningCigar = new CigarBuilder();
         final int resultHaplotypeLength = refHap.length() + events.stream().mapToInt(e -> e.altAllele().length() - e.refAllele().length()).sum();
-        final ByteBuffer newRefBases = ByteBuffer.allocate(resultHaplotypeLength);
+        final ByteBuffer newHapBases = ByteBuffer.allocate(resultHaplotypeLength);
 
         //ASSUME sorted for now
         for (Event event : events) {
@@ -501,18 +502,18 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             runningCigar.add(eventElement);
 
             // bases before the event, including the dummy initial indel base, followed by event bases, excluding the dummy indel base
-            newRefBases.put(ArrayUtils.subarray(refbases, lastPositionAdded - refStart, actualStart - refStart));
-            newRefBases.put(altRefLengthDiff == 0 ? altAllele.getBases() : Arrays.copyOfRange(altAllele.getBases(),1, altAllele.length()));
+            newHapBases.put(ArrayUtils.subarray(refbases, lastPositionAdded - refStart, actualStart - refStart));
+            newHapBases.put(altRefLengthDiff == 0 ? altAllele.getBases() : basesAfterFirst(altAllele));
 
             lastPositionAdded = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
         // bases after the last event
         int refStartIndex = lastPositionAdded - refStart;
-        newRefBases.put(ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
+        newHapBases.put(ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
         runningCigar.add(new CigarElement(refbases.length - refStartIndex, CigarOperator.M));
 
-        final Haplotype result = new Haplotype(newRefBases.array(), false, refHap, runningCigar.make());
+        final Haplotype result = new Haplotype(newHapBases.array(), false, refHap, runningCigar.make());
         if (setEventMap) {
             EventMap.buildEventMapsForHaplotypes(List.of(result), refHap.getBases(), refHap, false,0);
             // NOTE: we set this AFTER generating the event maps because hte event map code above is being generated from the ref hap so this offset will cause out of bounds errors
@@ -521,156 +522,109 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         return result;
     }
 
+    // skip the dummy intial base of an indel
+    @NotNull
+    private static byte[] basesAfterFirst(final Allele altAllele) {
+        return Arrays.copyOfRange(altAllele.getBases(), 1, altAllele.length());
+    }
+
     /**
      * Construct a PD haplotype from scratch
      *
      * Generally we are constructing a new haplotype with all the reference bases for SNP events and with the longest possible allele for INDEL events.
      * For deletions, we extend the haplotype by the ref length
      *
-     * NOTE: we assume each provided VC is in start position order, and only ever contains one allele (and that if there are overlapping SNPs and indels that the SNPs come fist)
+     * NOTE: we assume each provided VC is in start position order, and that if there are overlapping SNPs and indels that the SNPs come first
      */
     @VisibleForTesting
     //TODO When we implement JointDetection we will need to allow multiple eventWithVariants to be prsent...
-    static PartiallyDeterminedHaplotype createNewPDHaplotypeFromEvents(final Haplotype base, final Event eventWithVariant, final boolean useRef, final List<Event> constituentEvents) {
-        //ASSERT that the base is ref and cool
-        if (!base.isReference() || base.getCigar().numCigarElements() > 1) {
-            throw new RuntimeException("This is not a valid base haplotype for construction");
-        }
-        //TODO add a more stringent check that the format of constituentEvents works
-        int genomicStartPosition = base.getStart();
-        int refOffsetOfNextBaseToAdd = genomicStartPosition;
+    static PartiallyDeterminedHaplotype createNewPDHaplotypeFromEvents(final Haplotype refHap, final Event eventWithVariant, final boolean useRef, final List<Event> constituentEvents) {
+        Utils.validate(refHap.isReference() && refHap.getCigar().numCigarElements() == 1, "This is not a valid base haplotype for construction");
 
-        byte[] refBasesToAddTo = base.getBases();
+        //TODO add a more stringent check that the format of constituentEvents works
+        int refStart = refHap.getStart();
+        int lastPositionAdded = refStart;
+
+        byte[] refBasesToAddTo = refHap.getBases();
         CigarBuilder runningCigar = new CigarBuilder(false); // NOTE: in some incredibly rare edge cases involving the legacy assembly region trimmer a deletion can hang past the edge of an active window.
-        byte[] newHaplotypeBasees = {};
-        byte[] pdBytes = {};
+        final int upperBoundOnResultLength = refHap.length() + constituentEvents.stream().mapToInt(e -> Math.max(e.altAllele().length(), e.refAllele().length()) - 1).sum();
+        final ByteBuffer newHapBases = ByteBuffer.allocate(upperBoundOnResultLength);
+        final ByteBuffer pdBytes = ByteBuffer.allocate(upperBoundOnResultLength);
 
         //ASSUME sorted for now
         // use the reverse list to save myself figuring out cigars for right now
         for (Event event : constituentEvents) {
-            int intermediateRefStartPosition = refOffsetOfNextBaseToAdd - genomicStartPosition;
-            int intermediateRefEndPosition = Math.toIntExact(event.getStart() - genomicStartPosition);
+
+            final int actualStart = event.getStart() + (event.isIndel() ? 1 : 0);   // the +1 for indels accounts for the initial alt=ref dummy base
+            int basesBeforeNextEvent = actualStart - lastPositionAdded;
+            Utils.validate(basesBeforeNextEvent >= 0, () -> "PD event list: " + constituentEvents + " is out of order.");
 
             // An extra special case if we are a SNP following a SNP
-            if (event.isSNP() && intermediateRefEndPosition - intermediateRefStartPosition == -1 && ((pdBytes[pdBytes.length-1] & PartiallyDeterminedHaplotype.SNP) != 0)  ) {
-                byte[] array = PartiallyDeterminedHaplotype.getPDBytesForHaplotypes(event.refAllele(), event.altAllele());
-                pdBytes[pdBytes.length-1] = (byte) (pdBytes[pdBytes.length-1] | array[0]); // adding any partial bases if necessary
-                continue;
-            }
+            // TODO: Is basesBeforeNextEvent < 0 possible?  Even for two consecutive SNPS
+            //if (event.isSNP() && basesBeforeNextEvent == -1 && ((pdBytes[pdBytes.length-1] & PartiallyDeterminedHaplotype.SNP) != 0)  ) {
+            //    byte[] array = PartiallyDeterminedHaplotype.getPDBytesForHaplotypes(event.refAllele(), event.altAllele());
+            //    pdBytes[pdBytes.length-1] = (byte) (pdBytes[pdBytes.length-1] | array[0]); // adding any partial bases if necessary
+            //    continue;
+            //}
 
             // Ref alleles (even if they overlap undetermined events) should be skipped
             if (event.getStart()==eventWithVariant.getStart() && useRef) {
                 continue;
             }
 
-            //Check that we are allowed to add this event (and if not we are)
-            if ((event.isIndel() && intermediateRefEndPosition - intermediateRefStartPosition < -1) || (!event.isIndel() && intermediateRefEndPosition - intermediateRefStartPosition < 0)) {//todo clean this up
-                throw new RuntimeException("Variant "+event+" is out of order in the PD event list: "+constituentEvents);
-            }
-
-            // Add the cigar for bases we skip over
-            if (intermediateRefEndPosition - intermediateRefStartPosition > 0) {
-                runningCigar.add(new CigarElement(intermediateRefEndPosition - intermediateRefStartPosition, CigarOperator.M));
-            }
-
-            // Include the ref base for indel if the base immediately proceeding this event is not already tracked
-            boolean includeRefBaseForIndel = event.isIndel() && (intermediateRefStartPosition <= intermediateRefEndPosition);
-
-            // Determine the alleles to add
             Allele refAllele = event.refAllele();
             Allele altAllele = event.altAllele();
-            boolean isInsertion = altAllele.length() > refAllele.length(); // If its an insertion we flip to "ADD" the bases to the ref.
-            boolean isEvent = false;
-            byte[] basesToAdd;
-            // If this is the blessed variant, add
-            if (event.getStart()==eventWithVariant.getStart()) {
-                isEvent = true;
-                basesToAdd = useRef? refAllele.getBases() : altAllele.getBases();
-            // Otherwise make sure we are adding the longest allele (for indels) or the ref allele for snps.
-            } else {
-                basesToAdd = refAllele.length() >= altAllele.length() ? refAllele.getBases() : altAllele.getBases();
-            }
+            final int altRefLengthDiff = altAllele.length() - refAllele.length();
 
-            // Remove anchor base if necessary
-            if (event.isIndel() && !includeRefBaseForIndel) {
-                basesToAdd = Arrays.copyOfRange(basesToAdd, 1, basesToAdd.length);
-            }
+            boolean isInsertion = altRefLengthDiff > 0; // If its an insertion we flip to "ADD" the bases to the ref.
+            final boolean isEvent = event.getStart()==eventWithVariant.getStart();
 
-            // Figure out the cigar to add:
+            runningCigar.add(new CigarElement(basesBeforeNextEvent, CigarOperator.M));
+
+            // Figure out the cigar element to add:
             // - If we are in the ref, simply add the cigar corresponding to the allele we are using
-            // -
-            CigarElement newCigarElement;
-            // if this is the event special case
-            if (isEvent) {
-                if (event.isSNP()) {
-                    newCigarElement = new CigarElement(refAllele.length(), useRef? CigarOperator.M : CigarOperator.X);
-                } else {
-                    if (event.isIndel() && includeRefBaseForIndel) {
-                        runningCigar.add(new CigarElement( 1, CigarOperator.M));
-                    }
-                    // For Insertions: mark the Cigar as I if we aren't in ref
-                    if (isInsertion) {
-                        newCigarElement = new CigarElement(useRef ? 0 : Math.max(refAllele.length(), altAllele.length()) - 1, CigarOperator.I);
-                    // For Deletions: Always include the bases, however mark them as M or D accordingly
-                    } else {
-                        newCigarElement = new CigarElement(Math.max(refAllele.length(), altAllele.length()) - 1, useRef ? CigarOperator.M : CigarOperator.D);
-                    }
-                }
-           // If we aren't in the blessed variant, add a match and make sure the array is set accordingly
-            } else {
-                if (!event.isIndel()) {
-                    newCigarElement = new CigarElement(refAllele.length() , CigarOperator.M);
-                } else {
-                    // Maybe add the cigar for the anchor base
-                    if (includeRefBaseForIndel) {
-                        runningCigar.add(new CigarElement(1, CigarOperator.M));
-                    }
-                    // Add the cigar for the indel allele bases
-                    if (isInsertion) {
-                        // Insertions stay in the cigar since they are added relative to the reference
-                        newCigarElement = new CigarElement(Math.abs(altAllele.length() - refAllele.length()), CigarOperator.I);
-                    } else {
-                        // Deletions become matches because they still exist as bases on the reference
-                        newCigarElement = new CigarElement(Math.abs(altAllele.length() - refAllele.length()), CigarOperator.M);
-                    }
-                }
+            if (event.isSNP()) {    // SNPs are straightforward, whether or not it's the special event
+                runningCigar.add(new CigarElement(refAllele.length(), useRef || !isEvent ? CigarOperator.M : CigarOperator.X));
+            } else if (isEvent) {   // special indel
+                // The event is considered a deletion of the longer allele, regardless of which is ref
+                // we subtract 1 for the dummy initial indel base.
+                final int elementLength = isInsertion && useRef ? 0 : Math.max(refAllele.length(), altAllele.length()) - 1;
+                final CigarOperator operator = isInsertion ? CigarOperator.I : (useRef ? CigarOperator.M : CigarOperator.D);
+                runningCigar.add(new CigarElement(elementLength, operator));
+            } else {    // non-special indel. Insertions are treated as such; deletions become matches
+                runningCigar.add(new CigarElement(Math.abs(altRefLengthDiff), altRefLengthDiff > 0 ? CigarOperator.I : CigarOperator.M));
             }
-            runningCigar.add(newCigarElement);
 
-            // Add ref basses up to this if necessary
-            if (intermediateRefEndPosition - intermediateRefStartPosition > 0) {
-                newHaplotypeBasees = ArrayUtils.addAll(newHaplotypeBasees, ArrayUtils.subarray(refBasesToAddTo, intermediateRefStartPosition, event.getStart() - genomicStartPosition)); // bases before the variant
-                pdBytes = ArrayUtils.addAll(pdBytes, new byte[event.getStart() - refOffsetOfNextBaseToAdd]); // bases before the variant
-            }
-            newHaplotypeBasees = ArrayUtils.addAll(newHaplotypeBasees, basesToAdd); // refbases added
-            if (includeRefBaseForIndel) {
-                pdBytes = ArrayUtils.add(pdBytes, (byte)0);
-            }
-            pdBytes = ArrayUtils.addAll(pdBytes, isEvent?
-                    new byte[basesToAdd.length - (includeRefBaseForIndel?1:0)] :
-                    PartiallyDeterminedHaplotype.getPDBytesForHaplotypes(isInsertion?
-                            altAllele :
-                            refAllele,
-                            isInsertion? refAllele :
-                                    altAllele)); // refbases added
-            refOffsetOfNextBaseToAdd = event.getEnd() + 1; //TODO this is probably not set for future reference
+            // bases before the event, including the dummy initial indel base, followed by event bases, excluding the dummy indel base
+            newHapBases.put(ArrayUtils.subarray(refBasesToAddTo, lastPositionAdded - refStart, actualStart - refStart)); // bases before the variant
+            pdBytes.put(new byte[actualStart - lastPositionAdded]); // bases before the variant -- all zeroes
+
+            // Now add event bases.  If this is the blessed variant, add the ref or alt as appropriate
+            // Otherwise make sure we are adding the longest allele (for indels) or the ref allele for snps.
+            final Allele alleleToUse = (isEvent && useRef) || (!isEvent && altRefLengthDiff <= 0) ? refAllele : altAllele;
+            final byte[] basesToAdd = event.isIndel() ? basesAfterFirst(alleleToUse) : alleleToUse.getBases();
+            newHapBases.put(basesToAdd); // refbases added
+            pdBytes.put(isEvent ? new byte[basesToAdd.length] :
+                    PartiallyDeterminedHaplotype.getPDBytesForHaplotypes(isInsertion? altAllele : refAllele, isInsertion? refAllele : altAllele)); // refbases added
+
+            lastPositionAdded = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
         // Finish off the haplotype with the final bases
-        int refStartIndex = refOffsetOfNextBaseToAdd - genomicStartPosition;
-        newHaplotypeBasees = ArrayUtils.addAll(newHaplotypeBasees, ArrayUtils.subarray(refBasesToAddTo, refStartIndex, refBasesToAddTo.length));
-        pdBytes = ArrayUtils.addAll(pdBytes, new byte[refBasesToAddTo.length - refStartIndex]);
+        int refStartIndex = lastPositionAdded - refStart;
+        newHapBases.put(ArrayUtils.subarray(refBasesToAddTo, refStartIndex, refBasesToAddTo.length));
+        pdBytes.put(new byte[refBasesToAddTo.length - refStartIndex]);
         runningCigar.add(new CigarElement(refBasesToAddTo.length - refStartIndex, CigarOperator.M));
 
         return new PartiallyDeterminedHaplotype(
-                new Haplotype(newHaplotypeBasees, false, base.getGenomeLocation(), runningCigar.make()),
+                new Haplotype(ArrayUtils.subarray(newHapBases.array(), 0, newHapBases.position()), false, refHap.getGenomeLocation(), runningCigar.make()),
                 useRef,
-                pdBytes,
+                ArrayUtils.subarray(pdBytes.array(), 0, pdBytes.position()),
                 constituentEvents,
                 eventWithVariant,
                 runningCigar.make(),
                 eventWithVariant.getStart(),
-                base.getAlignmentStartHapwrtRef());
+                refHap.getAlignmentStartHapwrtRef());
     }
 
     // A helper class for managing mutually exclusive event clusters and the logic arround forming valid events vs eachother.

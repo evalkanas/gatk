@@ -13,6 +13,7 @@ import org.testng.Assert;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -84,7 +85,7 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
         Haplotype ref = new Haplotype("AAAAAAAAAA".getBytes(), true, 500, TextCigarCodec.decode("10M"));
         ref.setGenomeLocation(new SimpleInterval("20", 100, 110));
 
-        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromVariants(ref, events, true);
+        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromEvents(ref, events, true);
         Assert.assertEquals(result.getBases(), expectedBases.getBytes());
         Assert.assertEquals(result.getCigar(), TextCigarCodec.decode(expectedCigar));
 
@@ -100,7 +101,7 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
         ref.setGenomeLocation(new SimpleInterval("20", 100, 110));
         List<Event> variants = Arrays.asList(SNP_C_105, SNP_G_105);
 
-        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromVariants(ref, variants, true);
+        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromEvents(ref, variants, true);
     }
 
     @Test(expectedExceptions = GATKException.class)
@@ -109,7 +110,7 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
         ref.setGenomeLocation(new SimpleInterval("20", 100, 110));
         List<Event> events = Arrays.asList(SNP_C_109, DEL_AA_100);
 
-        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromVariants(ref, events, true);
+        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromEvents(ref, events, true);
     }
 
     @Test(expectedExceptions = GATKException.class)
@@ -118,7 +119,7 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
         ref.setGenomeLocation(new SimpleInterval("20", 100, 110));
         List<Event> events = Arrays.asList(SNP_C_90);
 
-        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromVariants(ref, events, true);
+        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromEvents(ref, events, true);
     }
 
     @Test(expectedExceptions = GATKException.class)
@@ -127,7 +128,7 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
         ref.setGenomeLocation(new SimpleInterval("20", 100, 110));
         List<Event> events = Arrays.asList(DEL_AAAAAAA_98);
 
-        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromVariants(ref, events, true);
+        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromEvents(ref, events, true);
     }
 
     //This is a test asserting that a real edge case that was prone to cause failures in the PDHMM is handled properly when compound variants are taken into account.
@@ -143,7 +144,7 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
 
         final List<Event> events = Arrays.asList(e1, e2, e3);
 
-        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromVariants(ref, events, true);
+        Haplotype result = PartiallyDeterminedHaplotypeComputationEngine.constructHaplotypeFromEvents(ref, events, true);
         Assert.assertEquals(result.getCigar(), TextCigarCodec.decode("62M1X19M1X1M12D157M"));
 
         // Assert that the resulting event map matches the input variants:
@@ -210,8 +211,9 @@ public class PartiallyDeterminedHaplotypeComputationEngineUnitTest extends GATKB
 
         PartiallyDeterminedHaplotype result = PartiallyDeterminedHaplotypeComputationEngine.createNewPDHaplotypeFromEvents(ref, DEL_AA_105, true, Arrays.asList(DEL_AAAAAAA_102, DEL_AA_105));
         Assert.assertEquals(new String(result.getBases()), "AAAAAAAAAA");
-        Assert.assertEquals(result.getAlternateBases(), new byte[]{0,0,0,2,0,0,0,0,4,0});
+        Assert.assertEquals(result.getAlternateBases(), new byte[]{0, 0, 0, 2, 0, 0, 0, 0, 4, 0});
         Assert.assertEquals(result.getCigar(), TextCigarCodec.decode("10M"));
         Assert.assertEquals(result.getDeterminedPosition(), DEL_AA_105.getStart());
+
     }
 }
