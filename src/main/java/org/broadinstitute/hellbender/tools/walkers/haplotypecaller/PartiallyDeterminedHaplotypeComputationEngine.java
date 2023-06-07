@@ -507,18 +507,18 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             lastPositionAdded = event.getEnd() + 1; //TODO this is probably not set for future reference
         }
 
+        // bases after the last event
         int refStartIndex = lastPositionAdded - refStart;
-        // bases between the previous event and the next
         newRefBases.put(ArrayUtils.subarray(refbases, refStartIndex, refbases.length));
         runningCigar.add(new CigarElement(refbases.length - refStartIndex, CigarOperator.M));
 
-        final Haplotype outHaplotype = new Haplotype(newRefBases.array(), false, refHap.getGenomeLocation(), runningCigar.make());
+        final Haplotype result = new Haplotype(newRefBases.array(), false, refHap, runningCigar.make());
         if (setEventMap) {
-            EventMap.buildEventMapsForHaplotypes(Collections.singletonList(outHaplotype), refHap.getBases(), refHap.getGenomeLocation(), false,0);
+            EventMap.buildEventMapsForHaplotypes(List.of(result), refHap.getBases(), refHap, false,0);
             // NOTE: we set this AFTER generating the event maps because hte event map code above is being generated from the ref hap so this offset will cause out of bounds errors
-            outHaplotype.setAlignmentStartHapwrtRef(refHap.getAlignmentStartHapwrtRef()); //TODO better logic here
+            result.setAlignmentStartHapwrtRef(refHap.getAlignmentStartHapwrtRef()); //TODO better logic here
         }
-        return outHaplotype;
+        return result;
     }
 
     /**
