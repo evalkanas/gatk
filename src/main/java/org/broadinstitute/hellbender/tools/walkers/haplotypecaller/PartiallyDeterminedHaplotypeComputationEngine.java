@@ -195,16 +195,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                     }
                 }
 
-                if (debug) {
-                    System.out.println("Branches:");
-                    for (int i = 0; i < branchExcludeAlleles.size(); i++) {
-                        final int ifinal = i;
-                        System.out.println("Branch "+i+" VCs:");
-                        System.out.println("exclude:" + eventsAsDragenString(refStart, branchExcludeAlleles.get(i)));
-                        //to match dragen debug output for personal sanity
-                        System.out.println("include:"+ eventsAsDragenString(refStart, eventsInOrder.stream().filter(variantContext -> !branchExcludeAlleles.get(ifinal).contains(variantContext)).collect(Collectors.toList())));
-                    }
-                }
+                branchExcludeAllelesDebugMessage(refStart, debug, eventsInOrder, branchExcludeAlleles);
 
 
                 /**
@@ -816,6 +807,19 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
     private static void dragenEventGroupsMessage(final String prefix, final boolean debug, final List<EventGroup> eventGroups, final int startPos) {
         Utils.printIf(debug, () -> prefix + eventGroups.stream().map(eg -> eg.toDisplayString(startPos)).collect(Collectors.joining("\n")));
+    }
+
+    private static void branchExcludeAllelesDebugMessage(int refStart, boolean debug, List<Event> eventsInOrder, List<Set<Event>> branchExcludeAlleles) {
+        if (debug) {
+            System.out.println("Branches:");
+            for (int i = 0; i < branchExcludeAlleles.size(); i++) {
+                final int ifinal = i;
+                System.out.println("Branch "+i+" VCs:");
+                System.out.println("exclude:" + eventsAsDragenString(refStart, branchExcludeAlleles.get(i)));
+                //to match dragen debug output for personal sanity
+                System.out.println("include:"+ eventsAsDragenString(refStart, eventsInOrder.stream().filter(variantContext -> !branchExcludeAlleles.get(ifinal).contains(variantContext)).collect(Collectors.toList())));
+            }
+        }
     }
 
     private static void dragenDisallowedGroupsMessage(int refStart, boolean debug, List<List<Event>> disallowedPairs) {
