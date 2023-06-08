@@ -168,29 +168,30 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                  * This is why we iterate over branchExcludeAlleles internally here.
                  */
                 for(EventGroup group : eventGroups ) {
-                    if (group.causesBranching()) {
-                        List<List<Tuple<Event, Boolean>>> groupVCs = group.getVariantGroupsForEvent(allEventsHere, determinedAlleleIndex, true);
-                        // Combinatorially expand the branches as necessary
-                        List<Set<Event>> newBranchesToAdd = new ArrayList<>();
-                        for (Set<Event> excludedVars : branchExcludeAlleles) {
-                            //For every exclude group, fork it by each subset we have:
-                            //NOTE: iterate starting at 1 here because we special case that branch at the end
-                            groupVCs.stream().skip(1).map(groupVC ->
-                                            Stream.concat(groupVC.stream().filter(t -> !t.b).map(t -> t.a),
-                                                    excludedVars.stream()).collect(Collectors.toSet()))
-                                    .forEach(newBranchesToAdd::add);
+                    if (!group.causesBranching()) {
+                        continue;
+                    }
+                    List<List<Tuple<Event, Boolean>>> groupVCs = group.getVariantGroupsForEvent(allEventsHere, determinedAlleleIndex, true);
+                    // Combinatorially expand the branches as necessary
+                    List<Set<Event>> newBranchesToAdd = new ArrayList<>();
+                    for (Set<Event> excludedVars : branchExcludeAlleles) {
+                        //For every exclude group, fork it by each subset we have:
+                        //NOTE: iterate starting at 1 here because we special case that branch at the end
+                        groupVCs.stream().skip(1).map(groupVC ->
+                                        Stream.concat(groupVC.stream().filter(t -> !t.b).map(t -> t.a),
+                                                excludedVars.stream()).collect(Collectors.toSet()))
+                                .forEach(newBranchesToAdd::add);
 
-                            // Be careful since this event group might have returned nothing
-                            if (!groupVCs.isEmpty()) {
-                                groupVCs.get(0).stream().filter(t -> !t.b).forEach(t -> excludedVars.add(t.a));
-                            }
+                        // Be careful since this event group might have returned nothing
+                        if (!groupVCs.isEmpty()) {
+                            groupVCs.get(0).stream().filter(t -> !t.b).forEach(t -> excludedVars.add(t.a));
                         }
-                        branchExcludeAlleles.addAll(newBranchesToAdd);
+                    }
+                    branchExcludeAlleles.addAll(newBranchesToAdd);
 
-                        if (branchExcludeAlleles.size() > MAX_BRANCH_PD_HAPS) {
-                            if (debug ) System.out.println("Found too many branches for variants at: "+determinedEventToTest.getStart()+" aborting and falling back to Assembly Varinats!");
-                            return sourceSet;
-                        }
+                    if (branchExcludeAlleles.size() > MAX_BRANCH_PD_HAPS) {
+                        Utils.printIf(debug, () -> "Found too many branches for variants at: "+determinedEventToTest.getStart()+" aborting and falling back to Assembly Varinats!");
+                        return sourceSet;
                     }
                 }
 
