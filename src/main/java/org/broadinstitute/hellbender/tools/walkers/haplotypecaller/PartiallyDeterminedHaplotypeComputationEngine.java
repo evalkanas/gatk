@@ -1,6 +1,7 @@
 package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import htsjdk.samtools.CigarElement;
@@ -28,6 +29,7 @@ import org.jgrapht.graph.SimpleGraph;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Class that manages the complicated steps involved in generating artifical haplotypes for the PDHMM:
@@ -155,8 +157,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                  */
 
                 // Loop over eventGroups, have each of them return a list of VariantContexts
-                List<Set<Event>> branchExcludeAlleles = new ArrayList<>();
-                branchExcludeAlleles.add(new HashSet<>()); // Add the null branch (assuming no exclusions)
+                List<Set<Event>> branchExcludeAlleles = Lists.newArrayList(new HashSet<>());    // Start with just the null branch (assuming no exclusions)
+                branchExcludeAlleles.add(new HashSet<>());
 
                 /* Note for future posterity:
                  * An assembly region could potentially have any number of (within some limitations) of event groups. When we are constructing
@@ -172,11 +174,12 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                         List<Set<Event>> newBranchesToAdd = new ArrayList<>();
                         for (Set<Event> excludedVars : branchExcludeAlleles) {
                             //For every exclude group, fork it by each subset we have:
-                            for (int i = 1; i < groupVCs.size(); i++) { //NOTE: iterate starting at 1 here because we special case that branch at the end
-                                Set<Event> newSet = new HashSet<>(excludedVars);
-                                groupVCs.get(i).stream().filter(t -> !t.b).forEach(t -> newSet.add(t.a));
-                                newBranchesToAdd.add(newSet);
-                            }
+                            //NOTE: iterate starting at 1 here because we special case that branch at the end
+                            groupVCs.stream().skip(1).map(groupVC ->
+                                            Stream.concat(groupVC.stream().filter(t -> !t.b).map(t -> t.a),
+                                                    excludedVars.stream()).collect(Collectors.toSet()))
+                                    .forEach(newBranchesToAdd::add);
+
                             // Be careful since this event group might have returned nothing
                             if (!groupVCs.isEmpty()) {
                                 groupVCs.get(0).stream().filter(t -> !t.b).forEach(t -> excludedVars.add(t.a));
