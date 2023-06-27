@@ -230,6 +230,7 @@ workflows:
        branches:
          - master
          - ah_var_store
+         - vs_962_there_can_be_only_one
    - name: GvsIngestTieout
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/wdl/GvsIngestTieout.wdl
