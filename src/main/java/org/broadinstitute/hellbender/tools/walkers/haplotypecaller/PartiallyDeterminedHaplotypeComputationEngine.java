@@ -742,11 +742,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          * @return
          */
         public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> eventsSharingStart, final List<Event> determinedEvents, final boolean disallowSubsets) {
-            // the subset index of the overlap of {@code eventsSharingStart} with this EventGroup
             final int intersectionSubset = subsetIndexOfIntersection(eventsSharingStart);
             final int determinedSubset = subsetIndexOfIntersection(determinedEvents);
-
-            // intersectionSubset == 0 (empty subset index) implies no intersection of {@code eventsSharingStart} with this EventGroup
             final boolean noIntersection = intersectionSubset == 0;
 
             // Special case (if we are determining bases outside of this mutex cluster we can reuse the work from previous iterations)
@@ -759,8 +756,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
             outerLoop:
             for (int i = numSubsets - 1; i > 0; i--) {
+                final boolean fullyDeterminedSubset = (i & intersectionSubset) == determinedSubset;
                 // If the event is allowed AND if we are looking for a particular event to be present or absent.
-                if (allowedEventSubsets.get(i) && (noIntersection || ((i & intersectionSubset) == determinedSubset))) {
+                if (allowedEventSubsets.get(i) && fullyDeterminedSubset) {
                     // Only check for subsets if we need to
                     if (disallowSubsets) {
                         for (Integer group : ints) {
