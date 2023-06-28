@@ -737,16 +737,20 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         /**
          * This method handles the logic involved in getting all of the allowed subsets of alleles for this event group.
          *
+         * @param eventsSharingStart some Events that share the same start position.  These may or may not intersect this EventGroup.
          * @param disallowSubsets
          * @return
          */
-        public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> allEventsHere, final List<Event> determinedEvents, final boolean disallowSubsets) {
-            // the subset index of the overlap of {@code allEventsHere} with this EventGroup
-            final int eventMask = subsetIndexOfIntersection(allEventsHere);
-            final int maskValues = subsetIndexOfIntersection(determinedEvents);
+        public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> eventsSharingStart, final List<Event> determinedEvents, final boolean disallowSubsets) {
+            // the subset index of the overlap of {@code eventsSharingStart} with this EventGroup
+            final int intersectionSubset = subsetIndexOfIntersection(eventsSharingStart);
+            final int determinedSubset = subsetIndexOfIntersection(determinedEvents);
+
+            // intersectionSubset == 0 (empty subset index) implies no intersection of {@code eventsSharingStart} with this EventGroup
+            final boolean noIntersection = intersectionSubset == 0;
 
             // Special case (if we are determining bases outside of this mutex cluster we can reuse the work from previous iterations)
-            if (eventMask == 0 && cachedEventLists != null) {
+            if (noIntersection && cachedEventLists != null) {
                 return cachedEventLists;
             }
 
@@ -756,7 +760,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             outerLoop:
             for (int i = numSubsets - 1; i > 0; i--) {
                 // If the event is allowed AND if we are looking for a particular event to be present or absent.
-                if (allowedEventSubsets.get(i) && (eventMask == 0 || ((i & eventMask) == maskValues))) {
+                if (allowedEventSubsets.get(i) && (noIntersection || ((i & intersectionSubset) == determinedSubset))) {
                     // Only check for subsets if we need to
                     if (disallowSubsets) {
                         for (Integer group : ints) {
@@ -781,7 +785,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 output.add(newGrp);
             }
             // Cache the result
-            if(eventMask==0) {
+            if(noIntersection) {
                 cachedEventLists = Collections.unmodifiableList(output);
             }
             return output;
