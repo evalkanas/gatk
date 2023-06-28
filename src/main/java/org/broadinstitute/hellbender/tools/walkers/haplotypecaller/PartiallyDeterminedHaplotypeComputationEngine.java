@@ -661,6 +661,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         final ImmutableList<Event> eventsInOrder;
         final ImmutableSet<Event> eventSet;
         BitSet allowedEventSubsets = null;
+        final int numSubsets;
 
         // Optimization to save ourselves recomputing the subsets at every point its necessary to do so.
         List<List<Tuple<Event,Boolean>>> cachedEventLists = null;
@@ -668,6 +669,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         public EventGroup(final Collection<Event> events) {
             eventsInOrder = events.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).collect(ImmutableList.toImmutableList());
             eventSet = ImmutableSet.copyOf(events);
+            numSubsets = 1 << events.size();    // number of subsets = 2^(number of events)
         }
 
         /**
@@ -690,9 +692,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 return;
             }
 
-            allowedEventSubsets = new BitSet(eventsInOrder.size());
-            allowedEventSubsets.flip(1, 1 << eventsInOrder.size());
-            // initialize all events as being allowed and then disallow them in turn .
+            allowedEventSubsets = new BitSet(numSubsets);
+            allowedEventSubsets.flip(1, numSubsets);    // initialize all non-empty subsets as allowed
 
             // Ensure the list is in positional order before commencing.
             List<Integer> bitmasks = new ArrayList<>();
@@ -729,7 +730,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             //TODO using the bitmask values themselves for the loop
             if (!bitmasks.isEmpty()) {
                 events:
-                for (int i = 1; i < allowedEventSubsets.length(); i++) {
+                for (int i = 1; i < numSubsets; i++) {
                     for (final int mask : bitmasks) {
                         if ((i & mask) == mask) { // are the bits form the mask true?
                             allowedEventSubsets.set(i, false);
@@ -767,7 +768,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // Iterate from the BACK of the list (i.e. ~supersets -> subsets)
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
             outerLoop:
-            for (int i = allowedEventSubsets.length(); i > 0; i--) {
+            for (int i = numSubsets - 1; i > 0; i--) {
                 // If the event is allowed AND if we are looking for a particular event to be present or absent.
                 if (allowedEventSubsets.get(i) && (eventMask == 0 || ((i & eventMask) == maskValues))) {
                     // Only check for subsets if we need to
