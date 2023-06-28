@@ -1,6 +1,8 @@
 package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import htsjdk.samtools.CigarElement;
@@ -411,9 +413,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             }
         }
 
-        return new ConnectivityInspector<>(graph).connectedSets().stream()
-                .map(set -> set.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).toList()).map(EventGroup::new)
-                .toList();
+        return new ConnectivityInspector<>(graph).connectedSets().stream().map(EventGroup::new).toList();
     }
 
     /**
@@ -649,8 +649,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
     // A helper class for managing mutually exclusive event clusters and the logic arround forming valid events vs eachother.
     private static class EventGroup {
-        List<Event> eventsInBitmapOrder;
-        HashSet<Event> eventSet;
+        final ImmutableList<Event> eventsInBitmapOrder;
+        final ImmutableSet<Event> eventSet;
         //From Illumina (there is a LOT of math that will eventually go into these)/
         BitSet allowedEvents = null;
 
@@ -658,13 +658,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         List<List<Tuple<Event,Boolean>>> cachedEventLists = null;
 
         public EventGroup(final Collection<Event> events) {
-            eventsInBitmapOrder = new ArrayList<>();
-            eventSet = new HashSet<>();
-
-            for (final Event event : events) {
-                eventsInBitmapOrder.add(event);
-                eventSet.add(event);
-            }
+            eventsInBitmapOrder = events.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).collect(ImmutableList.toImmutableList());
+            eventSet = ImmutableSet.copyOf(events);
         }
 
         /**
@@ -692,7 +687,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // initialize all events as being allowed and then disallow them in turn .
 
             // Ensure the list is in positional order before commencing.
-            eventsInBitmapOrder.sort(HAPLOTYPE_SNP_FIRST_COMPARATOR);
             List<Integer> bitmasks = new ArrayList<>();
 
             // Mark as disallowed all events that overlap each other, excluding pairs of SNPs
@@ -812,12 +806,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         }
 
         public int size() { return eventsInBitmapOrder.size(); }
-
-        public void addEvent(final Event event) {
-            eventsInBitmapOrder.add(event);
-            eventSet.add(event);
-            allowedEvents = null;
-        }
     }
 
     private static List<Event> growEventGroup(final List<Event> group, final Event event) {
