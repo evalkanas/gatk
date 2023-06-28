@@ -136,6 +136,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
              */
             for (int determinedAlleleIndex = (pileupArgs.determinePDHaps?0:-1); determinedAlleleIndex < allEventsHere.size(); determinedAlleleIndex++) { //note -1 for I here corresponds to the reference allele at this site
                 final boolean isRef = determinedAlleleIndex == -1;
+
+                // note: for now calling this a list is essentially another way to express an optional, but in future work it will genuinely be a list
+                final List<Event> determinedEvents = determinedAlleleIndex == -1 ? List.of() : List.of(allEventsHere.get(determinedAlleleIndex));
                 final Event determinedEventToTest = allEventsHere.get(isRef ? 0 : determinedAlleleIndex);
                 Utils.printIf(debug, () -> "Working with allele at site: "+(isRef? "[ref:"+(thisEventGroupStart-referenceHaplotype.getStart())+"]" : PartiallyDeterminedHaplotype.getDRAGENDebugEventString(referenceHaplotype.getStart()).apply(determinedEventToTest)));
                 // This corresponds to the DRAGEN code for
@@ -161,7 +164,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                  */
                 for(EventGroup group : eventGroups ) {
                     if (group.causesBranching()) {
-                        List<List<Tuple<Event, Boolean>>> groupVCs = group.getVariantGroupsForEvent(allEventsHere, determinedAlleleIndex, true);
+                        List<List<Tuple<Event, Boolean>>> groupVCs = group.getVariantGroupsForEvent(allEventsHere, determinedEvents, true);
                         // Combinatorially expand the branches as necessary
                         List<Set<Event>> newBranchesToAdd = new ArrayList<>();
                         for (Set<Event> excludedVars : branchExcludeAlleles) {
@@ -737,17 +740,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          * @param disallowSubsets
          * @return
          */
-        public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> allEventsHere, final int determinedAlleleIndex, final boolean disallowSubsets) {
-            // If we are dealing with an external to this list event
-            int eventMask = 0;
-            int maskValues = 0;
-            for(int i = 0; i < allEventsHere.size(); i++) {
-                if (eventIndices.containsKey(allEventsHere.get(i))) {
-                    int index = eventIndices.get(allEventsHere.get(i));
-                    eventMask |= subsetIndex(index);
-                    maskValues |= (i == determinedAlleleIndex ? subsetIndex(index) : 0);
-                }
-            }
+        public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> allEventsHere, final List<Event> determinedEvents, final boolean disallowSubsets) {
+            // the subset index of the overlap of {@code allEventsHere} with this EventGroup
+            final int eventMask = subsetIndexOfIntersection(allEventsHere);
+            final int maskValues = subsetIndexOfIntersection(determinedEvents);
+
             // Special case (if we are determining bases outside of this mutex cluster we can reuse the work from previous iterations)
             if (eventMask == 0 && cachedEventLists != null) {
                 return cachedEventLists;
@@ -814,6 +811,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 result |= subsetIndex(eventIndices.get(e));
             }
             return result;
+        }
+
+        // calculate the subset index of elements that intersect this EventGroup
+        private int subsetIndexOfIntersection(final Collection<Event> events) {
+            return subsetIndex(events.stream().filter(eventIndices::containsKey).toList());
         }
     }
 
