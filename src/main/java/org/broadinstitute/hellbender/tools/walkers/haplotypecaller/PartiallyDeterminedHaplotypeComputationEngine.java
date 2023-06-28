@@ -701,23 +701,15 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 for (int j = i+1; j < eventsInOrder.size(); j++) {
                     final Event second = eventsInOrder.get(j);
                     if (!(first.isSNP() && second.isSNP()) && eventsOverlapForPDHapsCode(first, second)) {
-                        bitmasks.add(1 << i | 1 << j);
+                        bitmasks.add(subsetIndex(i, j));
                     }
                 }
             }
             // mark as disallowed any sets of variants from the bitmask.
             for (List<Event> disallowed : disallowedEventCombinations) {
-                //
-                if (disallowed.stream().anyMatch(v -> eventIndices.containsKey(v))){
-                    int bitmask = 0;
-                    for (Event v : disallowed) {
-                        int indexOfV = eventIndices.get(v);
-                        if (indexOfV < 0) {
-                            throw new RuntimeException("Something went wrong in event group merging, variant "+v+" is missing from the event group despite being in a mutex pair: "+disallowed+"\n"+this);
-                        }
-                        bitmask += 1 << eventIndices.get(v);
-                    }
-                    bitmasks.add(bitmask);
+                if (disallowed.stream().anyMatch(eventIndices::containsKey)){
+                    Utils.validate(disallowed.stream().allMatch(eventIndices::containsKey), () -> "Mutex event set: " + disallowed + " only partially overlaps with EventGroup " + this);
+                    bitmasks.add(subsetIndex(disallowed));
                 }
             }
 
@@ -752,8 +744,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             for(int i = 0; i < allEventsHere.size(); i++) {
                 if (eventIndices.containsKey(allEventsHere.get(i))) {
                     int index = eventIndices.get(allEventsHere.get(i));
-                    eventMask = eventMask | (1 << index);
-                    maskValues = maskValues | ((i == determinedAlleleIndex ? 1 : 0) << index);
+                    eventMask |= subsetIndex(index);
+                    maskValues |= (i == determinedAlleleIndex ? subsetIndex(index) : 0);
                 }
             }
             // Special case (if we are determining bases outside of this mutex cluster we can reuse the work from previous iterations)
@@ -808,6 +800,21 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         }
 
         public int size() { return eventsInOrder.size(); }
+
+        // the subset index of a one-event subset is 2^i, where i the event's index within {@code eventsInOrder}
+        private static int subsetIndex(final int eventIndex) { return 1 << eventIndex; }
+
+        // likewise for a two-element subset.  Note that by using bitwise OR instead of addition it reverts to the singleton value if the events are identical
+        private static int subsetIndex(final int event1Index, final int event2Index) { return 1 << event1Index | 1 << event2Index; }
+
+        // as a private method this assumes that elsewhere we have checked that the elements in {@code subset} do in fact belong to this EventGroup
+        private int subsetIndex(final Collection<Event> subset) {
+            int result = 0;
+            for (final Event e : subset) {
+                result |= subsetIndex(eventIndices.get(e));
+            }
+            return result;
+        }
     }
 
     private static List<Event> growEventGroup(final List<Event> group, final Event event) {
