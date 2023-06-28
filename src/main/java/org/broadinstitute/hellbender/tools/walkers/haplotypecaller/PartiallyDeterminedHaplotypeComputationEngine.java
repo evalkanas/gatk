@@ -751,30 +751,31 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 return cachedEventLists;
             }
 
-            List<Integer> ints = new ArrayList<>();
+            // subsets of events in this EventGroup whose members that start here are determined
+            List<Integer> fullyDeterminedAllowedSubsets = new ArrayList<>();
             // Iterate from the BACK of the list (i.e. ~supersets -> subsets)
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
             outerLoop:
-            for (int i = numSubsets - 1; i > 0; i--) {
-                final boolean fullyDeterminedSubset = (i & intersectionSubset) == determinedSubset;
+            for (int subset = numSubsets - 1; subset > 0; subset--) {
+                final boolean fullyDeterminedSubset = (subset & intersectionSubset) == determinedSubset; // bitwise & is equivalent to intersection
                 // If the event is allowed AND if we are looking for a particular event to be present or absent.
-                if (allowedEventSubsets.get(i) && fullyDeterminedSubset) {
+                if (allowedEventSubsets.get(subset) && fullyDeterminedSubset) {
                     // Only check for subsets if we need to
                     if (disallowSubsets) {
-                        for (Integer group : ints) {
+                        for (Integer group : fullyDeterminedAllowedSubsets) {
                             // if the current i is a subset of an existing group
-                            if ((i | group) == group) {
+                            if ((subset | group) == group) {
                                 continue outerLoop;
                             }
                         }
                     }
-                    ints.add(i);
+                    fullyDeterminedAllowedSubsets.add(subset);
                 }
             }
 
             // Now that we have all the mutex groups, unpack them into lists of variants
             List<List<Tuple<Event,Boolean>>> output = new ArrayList<>();
-            for (Integer grp : ints) {
+            for (Integer grp : fullyDeterminedAllowedSubsets) {
                 List<Tuple<Event,Boolean>> newGrp = new ArrayList<>();
                 for (int i = 0; i < eventsInOrder.size(); i++) {
                     // if the corresponding bit is 1, set it as such, otherwise set it as 0.
