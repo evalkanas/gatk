@@ -1,10 +1,7 @@
 package org.broadinstitute.hellbender.tools.walkers.haplotypecaller;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Range;
-import com.google.common.collect.Sets;
+import com.google.common.collect.*;
 import htsjdk.samtools.CigarElement;
 import htsjdk.samtools.CigarOperator;
 import htsjdk.samtools.util.Locatable;
@@ -659,7 +656,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
      */
     private static class EventGroup {
         final ImmutableList<Event> eventsInOrder;
-        final ImmutableSet<Event> eventSet;
+        final ImmutableMap<Event, Integer> eventIndices;
         BitSet allowedEventSubsets = null;
         final int numSubsets;
 
@@ -668,7 +665,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
         public EventGroup(final Collection<Event> events) {
             eventsInOrder = events.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).collect(ImmutableList.toImmutableList());
-            eventSet = ImmutableSet.copyOf(events);
+            eventIndices = IntStream.range(0, events.size()).boxed().collect(ImmutableMap.toImmutableMap(eventsInOrder::get, n -> n));
             numSubsets = 1 << events.size();    // number of subsets = 2^(number of events)
         }
 
@@ -684,9 +681,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          * Iterate through pairs of Variants that overlap and mark off any pairings including this.
          * Iterate through the mutex variants and ensure pairs containing all mutex variant groups are marked as true
          *
-         * @param disallowedEvents Pairs of events disallowed
+         * @param disallowedEventCombinations Groups af two or more events (not EventGroups!) that are forbidden to co-occur
          */
-        public void populateBitset(List<List<Event>> disallowedEvents) {
+        public void populateBitset(List<List<Event>> disallowedEventCombinations) {
             Utils.validate(size() <= MAX_VAR_IN_EVENT_GROUP, () -> "Too many events (" + size() + ") for populating bitset.");
             if (eventsInOrder.size() < 2) {
                 return;
@@ -709,16 +706,16 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 }
             }
             // mark as disallowed any sets of variants from the bitmask.
-            for (List<Event> disallowed : disallowedEvents) {
+            for (List<Event> disallowed : disallowedEventCombinations) {
                 //
-                if (disallowed.stream().anyMatch(v -> eventSet.contains(v))){
+                if (disallowed.stream().anyMatch(v -> eventIndices.containsKey(v))){
                     int bitmask = 0;
                     for (Event v : disallowed) {
-                        int indexOfV = eventsInOrder.indexOf(v);
+                        int indexOfV = eventIndices.get(v);
                         if (indexOfV < 0) {
                             throw new RuntimeException("Something went wrong in event group merging, variant "+v+" is missing from the event group despite being in a mutex pair: "+disallowed+"\n"+this);
                         }
-                        bitmask += 1 << eventsInOrder.indexOf(v);
+                        bitmask += 1 << eventIndices.get(v);
                     }
                     bitmasks.add(bitmask);
                 }
@@ -753,8 +750,8 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             int eventMask = 0;
             int maskValues = 0;
             for(int i = 0; i < allEventsHere.size(); i++) {
-                if (eventSet.contains(allEventsHere.get(i))) {
-                    int index = eventsInOrder.indexOf(allEventsHere.get(i));
+                if (eventIndices.containsKey(allEventsHere.get(i))) {
+                    int index = eventIndices.get(allEventsHere.get(i));
                     eventMask = eventMask | (1 << index);
                     maskValues = maskValues | ((i == determinedAlleleIndex ? 1 : 0) << index);
                 }
@@ -808,10 +805,6 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         //Print The event group in Illumina indexed ordering:
         public String toDisplayString(int startPos) {
             return "EventGroup: " + formatEventsLikeDragenLogs(eventsInOrder, startPos);
-        }
-
-        public boolean contains(final Event event) {
-            return eventSet.contains(event);
         }
 
         public int size() { return eventsInOrder.size(); }
