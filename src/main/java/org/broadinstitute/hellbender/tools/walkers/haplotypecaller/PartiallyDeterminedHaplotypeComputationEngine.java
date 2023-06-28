@@ -647,18 +647,26 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
     }
 
-    // A helper class for managing mutually exclusive event clusters and the logic arround forming valid events vs eachother.
+
+    /**
+     * A helper class for managing mutually exclusive event clusters and the logic around forming valid combinations of events.
+     *
+     * This class uses the binary representation of subsets of events:
+     * a subset of events whose indices within {@code eventsInBitmapOrder} are {i_1, i_2. . . i_n} has subset index
+     * 2^(i_1) + 2^(i_2) . . . + 2^(i_n)
+     * For example, the empty set has index 0, the subset containing only the nth event has index 2^n, and the set of all
+     * events has index 2^N - 1, where N is the total number of events in the EventGroup.
+     */
     private static class EventGroup {
-        final ImmutableList<Event> eventsInBitmapOrder;
+        final ImmutableList<Event> eventsInOrder;
         final ImmutableSet<Event> eventSet;
-        //From Illumina (there is a LOT of math that will eventually go into these)/
-        BitSet allowedEvents = null;
+        BitSet allowedEventSubsets = null;
 
         // Optimization to save ourselves recomputing the subsets at every point its necessary to do so.
         List<List<Tuple<Event,Boolean>>> cachedEventLists = null;
 
         public EventGroup(final Collection<Event> events) {
-            eventsInBitmapOrder = events.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).collect(ImmutableList.toImmutableList());
+            eventsInOrder = events.stream().sorted(HAPLOTYPE_SNP_FIRST_COMPARATOR).collect(ImmutableList.toImmutableList());
             eventSet = ImmutableSet.copyOf(events);
         }
 
@@ -678,22 +686,22 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          */
         public void populateBitset(List<List<Event>> disallowedEvents) {
             Utils.validate(size() <= MAX_VAR_IN_EVENT_GROUP, () -> "Too many events (" + size() + ") for populating bitset.");
-            if (eventsInBitmapOrder.size() < 2) {
+            if (eventsInOrder.size() < 2) {
                 return;
             }
 
-            allowedEvents = new BitSet(eventsInBitmapOrder.size());
-            allowedEvents.flip(1, 1 << eventsInBitmapOrder.size());
+            allowedEventSubsets = new BitSet(eventsInOrder.size());
+            allowedEventSubsets.flip(1, 1 << eventsInOrder.size());
             // initialize all events as being allowed and then disallow them in turn .
 
             // Ensure the list is in positional order before commencing.
             List<Integer> bitmasks = new ArrayList<>();
 
             // Mark as disallowed all events that overlap each other, excluding pairs of SNPs
-            for (int i = 0; i < eventsInBitmapOrder.size(); i++) {
-                final Event first = eventsInBitmapOrder.get(i);
-                for (int j = i+1; j < eventsInBitmapOrder.size(); j++) {
-                    final Event second = eventsInBitmapOrder.get(j);
+            for (int i = 0; i < eventsInOrder.size(); i++) {
+                final Event first = eventsInOrder.get(i);
+                for (int j = i+1; j < eventsInOrder.size(); j++) {
+                    final Event second = eventsInOrder.get(j);
                     if (!(first.isSNP() && second.isSNP()) && eventsOverlapForPDHapsCode(first, second)) {
                         bitmasks.add(1 << i | 1 << j);
                     }
@@ -705,11 +713,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 if (disallowed.stream().anyMatch(v -> eventSet.contains(v))){
                     int bitmask = 0;
                     for (Event v : disallowed) {
-                        int indexOfV = eventsInBitmapOrder.indexOf(v);
+                        int indexOfV = eventsInOrder.indexOf(v);
                         if (indexOfV < 0) {
                             throw new RuntimeException("Something went wrong in event group merging, variant "+v+" is missing from the event group despite being in a mutex pair: "+disallowed+"\n"+this);
                         }
-                        bitmask += 1 << eventsInBitmapOrder.indexOf(v);
+                        bitmask += 1 << eventsInOrder.indexOf(v);
                     }
                     bitmasks.add(bitmask);
                 }
@@ -721,10 +729,10 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             //TODO using the bitmask values themselves for the loop
             if (!bitmasks.isEmpty()) {
                 events:
-                for (int i = 1; i < allowedEvents.length(); i++) {
+                for (int i = 1; i < allowedEventSubsets.length(); i++) {
                     for (final int mask : bitmasks) {
                         if ((i & mask) == mask) { // are the bits form the mask true?
-                            allowedEvents.set(i, false);
+                            allowedEventSubsets.set(i, false);
                             continue events;
                             // Once i is set we don't need to keep checking bitmasks
                         }
@@ -745,7 +753,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             int maskValues = 0;
             for(int i = 0; i < allEventsHere.size(); i++) {
                 if (eventSet.contains(allEventsHere.get(i))) {
-                    int index = eventsInBitmapOrder.indexOf(allEventsHere.get(i));
+                    int index = eventsInOrder.indexOf(allEventsHere.get(i));
                     eventMask = eventMask | (1 << index);
                     maskValues = maskValues | ((i == determinedAlleleIndex ? 1 : 0) << index);
                 }
@@ -759,9 +767,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // Iterate from the BACK of the list (i.e. ~supersets -> subsets)
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
             outerLoop:
-            for (int i = allowedEvents.length(); i > 0; i--) {
+            for (int i = allowedEventSubsets.length(); i > 0; i--) {
                 // If the event is allowed AND if we are looking for a particular event to be present or absent.
-                if (allowedEvents.get(i) && (eventMask == 0 || ((i & eventMask) == maskValues))) {
+                if (allowedEventSubsets.get(i) && (eventMask == 0 || ((i & eventMask) == maskValues))) {
                     // Only check for subsets if we need to
                     if (disallowSubsets) {
                         for (Integer group : ints) {
@@ -779,9 +787,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             List<List<Tuple<Event,Boolean>>> output = new ArrayList<>();
             for (Integer grp : ints) {
                 List<Tuple<Event,Boolean>> newGrp = new ArrayList<>();
-                for (int i = 0; i < eventsInBitmapOrder.size(); i++) {
+                for (int i = 0; i < eventsInOrder.size(); i++) {
                     // if the corresponding bit is 1, set it as such, otherwise set it as 0.
-                    newGrp.add(new Tuple<>(eventsInBitmapOrder.get(i), ((1<<i) & grp) != 0));
+                    newGrp.add(new Tuple<>(eventsInOrder.get(i), ((1<<i) & grp) != 0));
                 }
                 output.add(newGrp);
             }
@@ -793,19 +801,19 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
         }
 
         public boolean causesBranching() {
-            return eventsInBitmapOrder.size() > 1;
+            return eventsInOrder.size() > 1;
         }
 
         //Print The event group in Illumina indexed ordering:
         public String toDisplayString(int startPos) {
-            return "EventGroup: " + formatEventsLikeDragenLogs(eventsInBitmapOrder, startPos);
+            return "EventGroup: " + formatEventsLikeDragenLogs(eventsInOrder, startPos);
         }
 
         public boolean contains(final Event event) {
             return eventSet.contains(event);
         }
 
-        public int size() { return eventsInBitmapOrder.size(); }
+        public int size() { return eventsInOrder.size(); }
     }
 
     private static List<Event> growEventGroup(final List<Event> group, final Event event) {
