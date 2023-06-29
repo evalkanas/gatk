@@ -107,7 +107,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             Utils.printIf(debug, () -> "Found event group with too many variants! Aborting haplotype building");
             return sourceSet;
         }
-        eventGroups.forEach(eg -> eg.populateBitset(disallowedPairs));
+        eventGroups.forEach(eg -> eg.calculateAllowedEventSubsets(disallowedPairs));
 
         Set<Haplotype> outputHaplotypes = new LinkedHashSet<>();
         if (pileupArgs.determinePDHaps) {
@@ -684,9 +684,9 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          * Iterate through pairs of Variants that overlap and mark off any pairings including this.
          * Iterate through the mutex variants and ensure pairs containing all mutex variant groups are marked as true
          *
-         * @param disallowedEventCombinations Groups af two or more events (not EventGroups!) that are forbidden to co-occur
+         * @param disallowedCombinations Groups af two or more events (not EventGroups!) that are forbidden to co-occur
          */
-        public void populateBitset(List<List<Event>> disallowedEventCombinations) {
+        public void calculateAllowedEventSubsets(List<List<Event>> disallowedCombinations) {
             Utils.validate(size() <= MAX_VAR_IN_EVENT_GROUP, () -> "Too many events (" + size() + ") for populating bitset.");
             if (eventsInOrder.size() < 2) {
                 return;
@@ -695,24 +695,22 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             allowedEventSubsets = new BitSet(numSubsets);
             allowedEventSubsets.flip(1, numSubsets);    // initialize all non-empty subsets as allowed
 
-            // Ensure the list is in positional order before commencing.
-            List<Integer> bitmasks = new ArrayList<>();
-
-            // Mark as disallowed all events that overlap each other, excluding pairs of SNPs
+            // Forbid pairs of overlapping events, excluding pairs of SNPs, in addition to given disallowed combinations
+            final List<Integer> forbiddenCombinations = new ArrayList<>();
             for (int i = 0; i < eventsInOrder.size(); i++) {
                 final Event first = eventsInOrder.get(i);
-                for (int j = i+1; j < eventsInOrder.size(); j++) {
+                for (int j = i+1; j < eventsInOrder.size() && eventsInOrder.get(j).getStart() <= first.getEnd() + 1; j++) {
                     final Event second = eventsInOrder.get(j);
                     if (!(first.isSNP() && second.isSNP()) && eventsOverlapForPDHapsCode(first, second)) {
-                        bitmasks.add(subsetIndex(i, j));
+                        forbiddenCombinations.add(subsetIndex(i, j));
                     }
                 }
             }
-            // mark as disallowed any sets of variants from the bitmask.
-            for (List<Event> disallowed : disallowedEventCombinations) {
+
+            for (List<Event> disallowed : disallowedCombinations) {
                 if (disallowed.stream().anyMatch(eventIndices::containsKey)){
                     Utils.validate(disallowed.stream().allMatch(eventIndices::containsKey), () -> "Mutex event set: " + disallowed + " only partially overlaps with EventGroup " + this);
-                    bitmasks.add(subsetIndex(disallowed));
+                    forbiddenCombinations.add(subsetIndex(disallowed));
                 }
             }
 
@@ -720,12 +718,12 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             //TODO This method is potentially very inefficient! We don't technically have to iterate over every i,
             //TODO we know there is an optimization involving minimizing the number of checks necessary here by iterating
             //TODO using the bitmask values themselves for the loop
-            if (!bitmasks.isEmpty()) {
+            if (!forbiddenCombinations.isEmpty()) {
                 events:
-                for (int i = 1; i < numSubsets; i++) {
-                    for (final int mask : bitmasks) {
-                        if ((i & mask) == mask) { // are the bits form the mask true?
-                            allowedEventSubsets.set(i, false);
+                for (int subset = 1; subset < numSubsets; subset++) {
+                    for (final int mask : forbiddenCombinations) {
+                        if ((subset & mask) == mask) { // are the bits form the mask true?
+                            allowedEventSubsets.set(subset, false);
                             continue events;
                             // Once i is set we don't need to keep checking bitmasks
                         }
@@ -753,6 +751,11 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
             // subsets of events in this EventGroup whose members that start here are determined
             List<Integer> fullyDeterminedAllowedSubsets = new ArrayList<>();
+
+            // TODO: there's got to be a better way to do this -- basically, we want to find every allowed subset that doesn't use
+            // TODO: undetermined events at this particular start.  So basically, we just find allowed subsets that exclude
+            // TODO: certain elements.
+            // TODO: if disallow subsets is turned on, we want the maximal subset
             // Iterate from the BACK of the list (i.e. ~supersets -> subsets)
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
             outerLoop:
