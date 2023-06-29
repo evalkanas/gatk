@@ -1,6 +1,10 @@
 package org.broadinstitute.hellbender.utils;
 
+import org.broadinstitute.hellbender.tools.walkers.genotyper.GenotypeAlleleCounts;
+import org.broadinstitute.hellbender.tools.walkers.genotyper.GenotypeIndexCalculator;
+
 import java.util.Collection;
+import java.util.Iterator;
 
 /**
  * This class is very much like the standard library BitSet class in java.util, but instead of using
@@ -52,6 +56,39 @@ public class SmallBitSet {
         }
     }
 
+    // the bits as an integer define a unique index within the set of bitsets
+    // that is, bitsets can be enumerated as {}, {0}, {1}, {0, 1}, {2}, {0, 2} . . .
+    public int index() { return bits; }
+
+    // iterate over all SmallBitSets up to a certain element index in standard order
+    public static Iterator<SmallBitSet> iterator(final int numElements, final boolean reverse) {
+        return new Iterator<>() {
+            private final int numSets = 1 << numElements;
+            private int previousIndex = reverse ? numSets : -1; // start one past end if reverse, otherwise one before start
+
+            private final SmallBitSet bitset = new SmallBitSet();
+
+            @Override
+            public boolean hasNext() {
+                return reverse ? previousIndex > 0 : previousIndex < numSets - 1;
+            }
+
+            @Override
+            public SmallBitSet next() {
+                bitset.bits = reverse ? --previousIndex : ++previousIndex;
+                return bitset;
+            }
+        };
+    }
+
+    public static Iterator<SmallBitSet> iterator(final int numElements) {
+        return iterator(numElements, false);
+    }
+
+    public static Iterator<SmallBitSet> reverseIterator(final int numElements) {
+        return iterator(numElements, true);
+    }
+
     // intersection is equivalent to bitwise AND
     public SmallBitSet intersection(final SmallBitSet other) {
         final SmallBitSet result = new SmallBitSet();
@@ -85,6 +122,8 @@ public class SmallBitSet {
     public boolean get(final int element) {
         return (bits & elementIndex(element)) != 0;
     }
+
+    public boolean isEmpty() { return bits == 0; }
 
     private static int elementIndex(final int element) {
         return 1 << element;

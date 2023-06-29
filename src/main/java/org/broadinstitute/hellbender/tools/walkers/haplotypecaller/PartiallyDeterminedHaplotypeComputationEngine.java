@@ -10,6 +10,7 @@ import htsjdk.variant.variantcontext.Allele;
 import org.apache.commons.lang3.ArrayUtils;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWOverhangStrategy;
 import org.broadinstitute.gatk.nativebindings.smithwaterman.SWParameters;
+import org.broadinstitute.hellbender.utils.SmallBitSet;
 import org.broadinstitute.hellbender.utils.Utils;
 import org.broadinstitute.hellbender.utils.haplotype.Event;
 import org.broadinstitute.hellbender.utils.haplotype.EventMap;
@@ -138,7 +139,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 final boolean isRef = determinedAlleleIndex == -1;
 
                 // note: for now calling this a list is essentially another way to express an optional, but in future work it will genuinely be a list
-                final List<Event> determinedEvents = determinedAlleleIndex == -1 ? List.of() : List.of(allEventsHere.get(determinedAlleleIndex));
+                final Set<Event> determinedEvents = determinedAlleleIndex == -1 ? Set.of() : Set.of(allEventsHere.get(determinedAlleleIndex));
                 final Event determinedEventToTest = allEventsHere.get(isRef ? 0 : determinedAlleleIndex);
                 Utils.printIf(debug, () -> "Working with allele at site: "+(isRef? "[ref:"+(thisEventGroupStart-referenceHaplotype.getStart())+"]" : PartiallyDeterminedHaplotype.getDRAGENDebugEventString(referenceHaplotype.getStart()).apply(determinedEventToTest)));
                 // This corresponds to the DRAGEN code for
@@ -692,17 +693,14 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 return;
             }
 
-            allowedEventSubsets = new BitSet(numSubsets);
-            allowedEventSubsets.flip(1, numSubsets);    // initialize all non-empty subsets as allowed
-
             // Forbid pairs of overlapping events, excluding pairs of SNPs, in addition to given disallowed combinations
-            final List<Integer> forbiddenCombinations = new ArrayList<>();
+            final List<SmallBitSet> forbiddenCombinations = new ArrayList<>();
             for (int i = 0; i < eventsInOrder.size(); i++) {
                 final Event first = eventsInOrder.get(i);
                 for (int j = i+1; j < eventsInOrder.size() && eventsInOrder.get(j).getStart() <= first.getEnd() + 1; j++) {
                     final Event second = eventsInOrder.get(j);
                     if (!(first.isSNP() && second.isSNP()) && eventsOverlapForPDHapsCode(first, second)) {
-                        forbiddenCombinations.add(subsetIndex(i, j));
+                        forbiddenCombinations.add(new SmallBitSet(i, j));
                     }
                 }
             }
@@ -710,25 +708,20 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             for (List<Event> disallowed : disallowedCombinations) {
                 if (disallowed.stream().anyMatch(eventIndices::containsKey)){
                     Utils.validate(disallowed.stream().allMatch(eventIndices::containsKey), () -> "Mutex event set: " + disallowed + " only partially overlaps with EventGroup " + this);
-                    forbiddenCombinations.add(subsetIndex(disallowed));
+                    forbiddenCombinations.add(new SmallBitSet(disallowed.stream().map(eventIndices::get).toList()));
                 }
             }
 
-            // Now iterate through the list and disallow all events with every bitmask
+            // initialize all non-empty subsets as allowed, then disallow any subset containing a forbiddne combination
             //TODO This method is potentially very inefficient! We don't technically have to iterate over every i,
             //TODO we know there is an optimization involving minimizing the number of checks necessary here by iterating
             //TODO using the bitmask values themselves for the loop
+            allowedEventSubsets = new BitSet(numSubsets);
+            allowedEventSubsets.flip(1, numSubsets);
             if (!forbiddenCombinations.isEmpty()) {
-                events:
-                for (int subset = 1; subset < numSubsets; subset++) {
-                    for (final int mask : forbiddenCombinations) {
-                        if ((subset & mask) == mask) { // are the bits form the mask true?
-                            allowedEventSubsets.set(subset, false);
-                            continue events;
-                            // Once i is set we don't need to keep checking bitmasks
-                        }
-                    }
-                }
+                Streams.stream(SmallBitSet.iterator(eventsInOrder.size()))
+                        .filter(subset -> forbiddenCombinations.stream().anyMatch(subset::contains))
+                        .forEach(subset -> allowedEventSubsets.flip(subset.index()));
             }
         }
 
@@ -739,18 +732,18 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
          * @param disallowSubsets
          * @return
          */
-        public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> eventsSharingStart, final List<Event> determinedEvents, final boolean disallowSubsets) {
-            final int intersectionSubset = subsetIndexOfIntersection(eventsSharingStart);
-            final int determinedSubset = subsetIndexOfIntersection(determinedEvents);
-            final boolean noIntersection = intersectionSubset == 0;
+        public List<List<Tuple<Event,Boolean>>> getVariantGroupsForEvent(final List<Event> eventsSharingStart, final Set<Event> determinedEvents, final boolean disallowSubsets) {
+            final SmallBitSet locusSubset = intersection(eventsSharingStart);
+            final SmallBitSet undeterminedSubset = intersection(eventsSharingStart.stream().filter(e -> !determinedEvents.contains(e)).toList());
+            final SmallBitSet determinedSubset = intersection(determinedEvents);
 
             // Special case (if we are determining bases outside of this mutex cluster we can reuse the work from previous iterations)
-            if (noIntersection && cachedEventLists != null) {
+            if (locusSubset.isEmpty() && cachedEventLists != null) {
                 return cachedEventLists;
             }
 
             // subsets of events in this EventGroup whose members that start here are determined
-            List<Integer> fullyDeterminedAllowedSubsets = new ArrayList<>();
+            List<SmallBitSet> determinedAndAllowed = new ArrayList<>();
 
             // TODO: there's got to be a better way to do this -- basically, we want to find every allowed subset that doesn't use
             // TODO: undetermined events at this particular start.  So basically, we just find allowed subsets that exclude
@@ -758,27 +751,15 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // TODO: if disallow subsets is turned on, we want the maximal subset
             // Iterate from the BACK of the list (i.e. ~supersets -> subsets)
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
-            outerLoop:
-            for (int subset = numSubsets - 1; subset > 0; subset--) {
-                final boolean fullyDeterminedSubset = (subset & intersectionSubset) == determinedSubset; // bitwise & is equivalent to intersection
-                // If the event is allowed AND if we are looking for a particular event to be present or absent.
-                if (allowedEventSubsets.get(subset) && fullyDeterminedSubset) {
-                    // Only check for subsets if we need to
-                    if (disallowSubsets) {
-                        for (Integer group : fullyDeterminedAllowedSubsets) {
-                            // if the current i is a subset of an existing group
-                            if ((subset | group) == group) {
-                                continue outerLoop;
-                            }
-                        }
-                    }
-                    fullyDeterminedAllowedSubsets.add(subset);
-                }
-            }
+            Streams.stream(SmallBitSet.reverseIterator(eventsInOrder.size()))
+                    .filter(subset -> allowedEventSubsets.get(subset.index()))  // allowed subset
+                    .filter(subset -> subset.intersection(undeterminedSubset).isEmpty())    // fully-determined at this locus
+                    .filter(subset -> !disallowSubsets || determinedAndAllowed.stream().noneMatch(da -> da.contains(subset)))
+                    .forEach(determinedAndAllowed::add);
 
             // Now that we have all the mutex groups, unpack them into lists of variants
             List<List<Tuple<Event,Boolean>>> output = new ArrayList<>();
-            for (Integer grp : fullyDeterminedAllowedSubsets) {
+            for (Integer grp : determinedAndAllowed) {
                 List<Tuple<Event,Boolean>> newGrp = new ArrayList<>();
                 for (int i = 0; i < eventsInOrder.size(); i++) {
                     // if the corresponding bit is 1, set it as such, otherwise set it as 0.
@@ -787,7 +768,7 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
                 output.add(newGrp);
             }
             // Cache the result
-            if(noIntersection) {
+            if(locusSubset.isEmpty()) {
                 cachedEventLists = Collections.unmodifiableList(output);
             }
             return output;
@@ -804,24 +785,16 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
 
         public int size() { return eventsInOrder.size(); }
 
-        // the subset index of a one-event subset is 2^i, where i the event's index within {@code eventsInOrder}
-        private static int subsetIndex(final int eventIndex) { return 1 << eventIndex; }
-
-        // likewise for a two-element subset.  Note that by using bitwise OR instead of addition it reverts to the singleton value if the events are identical
-        private static int subsetIndex(final int event1Index, final int event2Index) { return 1 << event1Index | 1 << event2Index; }
-
-        // as a private method this assumes that elsewhere we have checked that the elements in {@code subset} do in fact belong to this EventGroup
-        private int subsetIndex(final Collection<Event> subset) {
-            int result = 0;
-            for (final Event e : subset) {
-                result |= subsetIndex(eventIndices.get(e));
+        // calculate the subset of this EventGroup that intersects some Collection of Events
+        private SmallBitSet intersection(final Collection<Event> events) {
+            final SmallBitSet result = new SmallBitSet();
+            for (final Event event : events) {
+                final int idx = eventIndices.getOrDefault(event, -1);
+                if (idx >= 0) {
+                    result.flip(idx);
+                }
             }
             return result;
-        }
-
-        // calculate the subset index of elements that intersect this EventGroup
-        private int subsetIndexOfIntersection(final Collection<Event> events) {
-            return subsetIndex(events.stream().filter(eventIndices::containsKey).toList());
         }
     }
 

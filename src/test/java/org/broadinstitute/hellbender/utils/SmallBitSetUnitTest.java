@@ -1,8 +1,10 @@
 package org.broadinstitute.hellbender.utils;
 
+import com.google.common.collect.Streams;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.util.Iterator;
 import java.util.List;
 
 public class SmallBitSetUnitTest {
@@ -95,5 +97,20 @@ public class SmallBitSetUnitTest {
     public void testGet() {
         List.of(ELEMENT_1, ELEMENT_2, ELEMENT_3).forEach(el -> Assert.assertTrue(THREE_ELEMENTS.get(el)));
         Assert.assertFalse(THREE_ELEMENTS.get(DIFFERENT_ELEMENT));
+    }
+
+    @Test
+    public void testIterator() {
+        Assert.assertEquals(Streams.stream(SmallBitSet.iterator(2)).map(SmallBitSet::index).toList(),
+                List.of(0,1,2,3));
+
+        Assert.assertEquals(Streams.stream(SmallBitSet.iterator(3)).map(SmallBitSet::index).toList(),
+                List.of(0,1,2,3,4,5,6,7));
+
+        Assert.assertEquals(Streams.stream(SmallBitSet.reverseIterator(2)).map(SmallBitSet::index).toList(),
+                List.of(3,2,1,0));
+
+        Assert.assertEquals(Streams.stream(SmallBitSet.reverseIterator(3)).map(SmallBitSet::index).toList(),
+                List.of(7,6,5,4,3,2,1,0));
     }
 }
