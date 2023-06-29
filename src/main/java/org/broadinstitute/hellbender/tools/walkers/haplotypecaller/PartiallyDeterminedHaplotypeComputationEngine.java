@@ -751,19 +751,24 @@ public class PartiallyDeterminedHaplotypeComputationEngine {
             // TODO: if disallow subsets is turned on, we want the maximal subset
             // Iterate from the BACK of the list (i.e. ~supersets -> subsets)
             // NOTE: we skip over 0 here since that corresponds to ref-only events, handle those externally to this code
-            Streams.stream(SmallBitSet.reverseIterator(eventsInOrder.size()))
-                    .filter(subset -> allowedEventSubsets.get(subset.index()))  // allowed subset
-                    .filter(subset -> subset.intersection(undeterminedSubset).isEmpty())    // fully-determined at this locus
-                    .filter(subset -> !disallowSubsets || determinedAndAllowed.stream().noneMatch(da -> da.contains(subset)))
-                    .forEach(determinedAndAllowed::add);
+            final Iterator<SmallBitSet> it = SmallBitSet.reverseIterator(eventsInOrder.size());
+            while (it.hasNext()) {
+                final SmallBitSet subset = it.next();
+                // skip ref-only, disallowed, not fully-determined, and subsets of already-added
+                if (!subset.isEmpty() && allowedEventSubsets.get(subset.index()) && subset.intersection(undeterminedSubset).isEmpty()) {
+                    if (!disallowSubsets || determinedAndAllowed.stream().noneMatch(da -> da.contains(subset))) {
+                        determinedAndAllowed.add(subset);
+                    }
+                }
+            }
 
             // Now that we have all the mutex groups, unpack them into lists of variants
             List<List<Tuple<Event,Boolean>>> output = new ArrayList<>();
-            for (Integer grp : determinedAndAllowed) {
+            for (final SmallBitSet grp : determinedAndAllowed) {
                 List<Tuple<Event,Boolean>> newGrp = new ArrayList<>();
                 for (int i = 0; i < eventsInOrder.size(); i++) {
                     // if the corresponding bit is 1, set it as such, otherwise set it as 0.
-                    newGrp.add(new Tuple<>(eventsInOrder.get(i), ((1<<i) & grp) != 0));
+                    newGrp.add(new Tuple<>(eventsInOrder.get(i), grp.get(i)));
                 }
                 output.add(newGrp);
             }
