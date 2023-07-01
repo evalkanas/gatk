@@ -228,6 +228,7 @@ workflows:
          - master
          - ah_var_store
          - vs_1001_bigquery_storage_to_v1
+         - pin_hail_02_118
    - name: GvsIngestTieout
      subclass: WDL
      primaryDescriptorPath: /scripts/variantstore/wdl/GvsIngestTieout.wdl
