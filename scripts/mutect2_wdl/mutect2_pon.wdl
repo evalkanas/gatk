@@ -123,12 +123,12 @@ task CreatePanel {
       File gnomad
       File gnomad_idx
       String? create_pon_extra_args
+      Int machine_mem = 8
 
       # runtime
       Runtime runtime_params
     }
 
-    Int machine_mem = 8
     Int command_mem = machine_mem - 1
 
         parameter_meta{
